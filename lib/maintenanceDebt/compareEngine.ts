@@ -176,6 +176,40 @@ export function compareHistoryToSchedule({
     const estimatedCostHigh = pricing?.estimateHigh ?? null;
     const isTimeSensitive = Boolean(TIME_RULES[canonicalService]);
 
+    // ── Layer 1: PPI Check (Precedence) ──────────────────────────────────────
+    // If we have an inspection report finding for this service, it overrides
+    // mileage/time based estimates because it is a direct observation of condition.
+    const ppiEvent = normalizedHistory.find(h => h.canonicalService === canonicalService && h.is_ppi);
+    
+    if (ppiEvent) {
+      const ppiStatus = ppiEvent.ppi_is_good ? "done" : "overdue";
+      const ppiReasoning = ppiEvent.ppi_is_good
+        ? `Condition confirmed: Professional inspection found ${displayName} to be in good condition.`
+        : `Immediate attention needed: Professional inspection confirmed ${displayName} requires replacement or service.`;
+
+      const ppiItem: MaintenanceDebtItem = {
+        canonicalService,
+        displayName,
+        status: ppiStatus,
+        detectionMethod: "unknown", // It's physical inspection
+        dueMileage: ppiEvent.mileage ?? null,
+        currentMileage,
+        overdueMiles: null,
+        overdueMonths: null,
+        lastServiceDate: ppiEvent.date ?? null,
+        evidenceFound: true,
+        matchingHistoryEventIds: [ppiEvent.id],
+        estimatedCostLow: ppiStatus === "overdue" ? estimatedCostLow : null,
+        estimatedCostHigh: ppiStatus === "overdue" ? estimatedCostHigh : null,
+        severity,
+        reasoning: ppiReasoning,
+      };
+
+      if (ppiStatus === "done") completedItems.push(ppiItem);
+      else debtItems.push(ppiItem);
+      continue; // Skip mileage/time dance for this service
+    }
+
     // ── Mileage-based evaluation ──────────────────────────────────────────────
 
     let mileageStatus: MaintenanceDebtItem["status"] = "unknown";

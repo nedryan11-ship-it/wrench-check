@@ -84,6 +84,8 @@ export async function normalizeServiceHistory(
       date: event.date ?? null,
       mileage: event.mileage ?? null,
       mappedFrom: finalResult.matchedAlias ?? event.rawDescription,
+      is_ppi: event.is_ppi,
+      ppi_is_good: event.ppi_is_good,
     });
   }
 

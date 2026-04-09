@@ -17,12 +17,14 @@ export type SourceType = "image" | "pdf_text" | "pdf_vision" | "url" | "text";
 export interface RawLineItem {
   description: string;
   price: number;
+  ppi_is_good?: boolean | null;
 }
 
 export interface NormalizedExtraction {
   source_type: SourceType;
   shop_name: string;
   shop_address: string | null;
+  is_inspection_report?: boolean;
   vehicle_info: {
     year?: string;
     make?: string;
@@ -77,22 +79,28 @@ export function detectSourceType(
 
 // ─── Shared GPT extraction prompt ─────────────────────────────────────────────
 
-const EXTRACTION_SYSTEM_PROMPT = `You are an expert automotive repair estimate parser. Your ONLY job is to extract every service line item from the document.
+const EXTRACTION_SYSTEM_PROMPT = `You are an expert automotive repair estimate and inspection report parser. 
+
+YOUR OBJECTIVE:
+Extract every service line item or inspection finding from the document.
 
 CRITICAL RULES — NEVER BREAK THESE:
 1. You MUST return at least one item in "line_items" OR "observations" if ANY text about vehicle services exists.
-2. NEVER return an empty "line_items" array if you can see service names, prices, or repair descriptions.
-3. Extract EVERYTHING: named services, "Recommended Service" headers, diagnostic notes, parts, labor — all of it.
-4. If a price is unclear or missing, set it to 0. Never skip a service because the price is unclear.
-5. For images: read every visible line of text, including handwritten notes, headers, and totals.
-6. If the document mentions dollar amounts like "$X.XX", those are prices — extract them with their associated service name.
+2. DETECTION: Determine if this is a SERVICE ESTIMATE (work to be done/pricing) or an INSPECTION REPORT (PPI/Health Check/Condition report). Set "is_inspection_report" accordingly.
+3. FOR INSPECTION REPORTS: 
+   - Extract the condition of each component (e.g., Brake Pads: 4mm/Fair).
+   - If a component is marked as "Needs Attention", "Fail", "Red", "Recommend Service", or displays obvious wear, set "ppi_is_good" to false.
+   - If a component is marked as "Passed", "Good", "Green", or "Okay", set "ppi_is_good" to true.
+4. Extract EVERYTHING: named services, "Recommended Service" headers, diagnostic notes, parts, labor — all of it.
+5. If a price is unclear or missing, set it to 0. Never skip a service because the price is unclear.
 
 Return this exact JSON shape:
 {
   "shop_name": "string or null",
   "shop_address": "string or null",
+  "is_inspection_report": boolean,
   "vehicle_info": { "year": "string or null", "make": "string or null", "model": "string or null", "vin": "string or null" },
-  "line_items": [{ "description": "string", "price": number }],
+  "line_items": [{ "description": "string", "price": number, "ppi_is_good": boolean | null }],
   "totals": { "subtotal": number or null, "tax": number or null, "grand_total": number or null },
   "observations": ["string — any diagnostic note, recommendation, or concern that didn't have a standalone price"],
   "confidence": "high" | "medium" | "low"
@@ -311,6 +319,7 @@ function parseGptResponse(
         vin: parsed.vehicle_info?.vin || undefined,
       },
       line_items: Array.isArray(parsed.line_items) ? parsed.line_items : [],
+      is_inspection_report: !!parsed.is_inspection_report,
       totals: {
         subtotal: parsed.totals?.subtotal ?? undefined,
         tax: parsed.totals?.tax ?? undefined,

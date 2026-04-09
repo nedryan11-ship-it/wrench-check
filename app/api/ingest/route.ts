@@ -33,6 +33,8 @@ async function saveExtraction(caseId: string, extraction: NormalizedExtraction) 
         case_id: caseId,
         raw_text: li.description,
         price: li.price ?? 0,
+        is_ppi: extraction.is_inspection_report,
+        ppi_is_good: li.ppi_is_good,
       }))
     );
   }

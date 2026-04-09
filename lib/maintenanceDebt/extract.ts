@@ -14,9 +14,9 @@ interface ExtractionResult {
   events: ServiceHistoryEvent[];
 }
 
-const SYSTEM_PROMPT = `You are a vehicle service history extraction engine.
+const SYSTEM_PROMPT = `You are a vehicle service history and inspection report extraction engine.
 
-Extract structured data from vehicle history reports (Carfax, Autocheck, service receipts, or raw text).
+Extract structured data from vehicle history reports (Carfax, Autocheck, service receipts, or raw text) AND inspection reports (PPI, Health Check, Appraisal).
 
 Return ONLY valid JSON. No prose, no markdown, no explanation.
 
@@ -35,19 +35,20 @@ OUTPUT FORMAT:
     {
       "rawDescription": "<exact text from report>",
       "date": "<YYYY-MM-DD or null>",
-      "mileage": <number or null>
+      "mileage": <number or null>,
+      "is_ppi": <boolean: set to true if this document is an inspection/condition report rather than a history of past work>,
+      "ppi_is_good": <boolean | null: for inspections, true if item passed/green/good, false if failed/red/recommended>
     }
   ]
 }
 
 RULES:
 - Preserve rawDescription exactly as it appears in the source text
+- DETECT PPI: If the document is a "Vehicle Health Check", "Insepction Report", "PPI", or "Pre-Purchase Inspection", set is_ppi: true for its findings.
+- PPI CONDITION: If an item is marked "Passed", "Good", "Green", set ppi_is_good: true. If "Needs Attention", "Fair", "Red", "Fail", set ppi_is_good: false.
 - currentMileage: prefer an explicit "Current Mileage" field in the report header.
-  If not present, use the highest mileage found in any service event.
-  Set mileageSource accordingly: "header" or "latest_event"
 - VIN: extract only 17-character VINs. If invalid length or absent, return null
-- Include every distinct service event found — do not deduplicate
-- If a field is genuinely absent, return null (not empty string)
+- Include every distinct service event or inspection finding found.
 - Dates: convert to ISO format if possible`;
 
 export async function extractFromText(
@@ -94,12 +95,14 @@ export async function extractFromText(
 
     // Build ServiceHistoryEvent[]
     const events: ServiceHistoryEvent[] = (parsed.events ?? []).map(
-      (e: { rawDescription?: string; date?: string; mileage?: number }) => ({
+      (e: { rawDescription?: string; date?: string; mileage?: number; is_ppi?: boolean; ppi_is_good?: boolean }) => ({
         id: crypto.randomUUID(),
-        source,
+        source: e.is_ppi ? "ppi" : source,
         rawDescription: e.rawDescription ?? "",
         date: e.date ?? null,
         mileage: typeof e.mileage === "number" ? e.mileage : null,
+        is_ppi: !!e.is_ppi,
+        ppi_is_good: e.ppi_is_good,
       })
     );
 

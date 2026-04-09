@@ -22,10 +22,14 @@ export type VehicleIdentity = {
 
 export type ServiceHistoryEvent = {
   id: string;
-  source: "carfax" | "autocheck" | "receipt" | "manual" | "unknown";
+  source: "carfax" | "autocheck" | "receipt" | "manual" | "unknown" | "ppi";
   rawDescription: string;
   date?: string | null;
   mileage?: number | null;
+  /** If true, this represents a current inspection finding (Level 1 Confidence) */
+  is_ppi?: boolean;
+  /** For PPI: true if inspection said item is GOOD, false if replacement recommended */
+  ppi_is_good?: boolean;
 };
 
 // ─── Normalized history (from normalization layer) ───────────────────────────
@@ -40,6 +44,10 @@ export type NormalizedServiceEvent = {
   mileage?: number | null;
   /** The exact raw text that triggered this mapping */
   mappedFrom: string;
+  /** If true, this represents a current inspection finding (Level 1 Confidence) */
+  is_ppi?: boolean;
+  /** For PPI: true if inspection said item is GOOD, false if replacement recommended */
+  ppi_is_good?: boolean;
 };
 
 // ─── OEM maintenance schedule ─────────────────────────────────────────────────

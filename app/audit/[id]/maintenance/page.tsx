@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
   Copy, Check, ArrowLeft, Shield, Send, Clock, Info,
-  TrendingDown, DollarSign, Tag,
+  TrendingDown, DollarSign, Tag, MessageSquare,
 } from "lucide-react";
 import type { MaintenanceDebtAuditResult, MaintenanceDebtItem } from "@/lib/maintenanceDebt/types";
 import type { BuyingAdvisorResponse } from "@/lib/buyingAdvisor/types";
@@ -21,7 +21,8 @@ interface ChatMessage {
   isDoneSignal?: boolean;
 }
 
-type DealQuality = "great_deal" | "good_deal" | "fair_deal" | "overpriced" | "unknown";
+type ItemAction = "negotiate" | "done" | "seller_fix";
+type DealQuality = "strong_buy" | "fair_deal" | "overpriced" | "unknown";
 
 // ─── Verdict config ───────────────────────────────────────────────────────────
 
@@ -46,8 +47,7 @@ const VERDICT_CONFIG: Record<string, VerdictCfg> = {
 // ─── Deal quality config ──────────────────────────────────────────────────────
 
 const DEAL_QUALITY_CONFIG: Record<DealQuality, { label: string; color: string; bg: string }> = {
-  great_deal: { label: "Great Deal",  color: "#16A34A", bg: "rgba(22,163,74,0.10)" },
-  good_deal:  { label: "Good Deal",   color: "#D97706", bg: "rgba(245,158,11,0.10)" },
+  strong_buy: { label: "Strong Buy",  color: "#16A34A", bg: "rgba(22,163,74,0.10)" },
   fair_deal:  { label: "Fair Price",  color: "#64748B", bg: "rgba(100,116,139,0.10)" },
   overpriced: { label: "Overpriced",  color: "#DC2626", bg: "rgba(220,38,38,0.10)" },
   unknown:    { label: "Enter Price", color: "#94A3B8", bg: "rgba(148,163,184,0.08)" },
@@ -55,17 +55,25 @@ const DEAL_QUALITY_CONFIG: Record<DealQuality, { label: string; color: string; b
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getItemLabel(item: MaintenanceDebtItem, isAiEstimated: boolean): string {
+function getItemLabel(item: MaintenanceDebtItem, result: MaintenanceDebtAuditResult): string {
+  const matchingEventIds = item.matchingHistoryEventIds || [];
+  const isPpiConfirmed = result.normalizedHistory?.some(h => matchingEventIds.includes(h.id) && h.is_ppi);
+
+  if (isPpiConfirmed) return "Confirmed";
   if (item.evidenceFound) return "Documented";
   if (item.status === "done") return "Completed";
-  if (isAiEstimated) return item.severity === "high" ? "Verify" : "Undocumented";
-  if (item.status === "overdue") return "Overdue";
+  if (result.scheduleSource === "ai_estimated") return item.severity === "high" ? "Verify" : "Undocumented";
+  if (item.status === "overdue") return "Due based on mileage";
   return "Due Now";
 }
 
-function getItemLabelStyle(item: MaintenanceDebtItem, isAiEstimated: boolean): { color: string; bg: string } {
-  if (item.evidenceFound) return { color: "#16A34A", bg: "rgba(22,163,74,0.12)" };
-  if (isAiEstimated) {
+function getItemLabelStyle(item: MaintenanceDebtItem, result: MaintenanceDebtAuditResult): { color: string; bg: string } {
+  const matchingEventIds = item.matchingHistoryEventIds || [];
+  const isPpiConfirmed = result.normalizedHistory?.some(h => matchingEventIds.includes(h.id) && h.is_ppi);
+
+  if (isPpiConfirmed) return { color: "#16A34A", bg: "rgba(22,163,74,0.12)" };
+  if (item.evidenceFound) return { color: "#10B981", bg: "rgba(16,185,129,0.12)" };
+  if (result.scheduleSource === "ai_estimated") {
     return item.severity === "high"
       ? { color: "#D97706", bg: "rgba(245,158,11,0.12)" }
       : { color: "#94A3B8", bg: "rgba(148,163,184,0.12)" };
@@ -86,34 +94,71 @@ function getTopItems(result: MaintenanceDebtAuditResult, limit = 4): Maintenance
     .slice(0, limit);
 }
 
-function buildNegotiationPitch(r: MaintenanceDebtAuditResult): string {
-  const items = [...r.debtItems]
+interface NegotiationGuidance {
+  state: string;
+  uiMessage: string;
+  script: string;
+  tone: string;
+}
+
+function getNegotiationGuidance(r: MaintenanceDebtAuditResult, askingPrice: number | null, dealQuality: DealQuality): NegotiationGuidance {
+  const overdueItems = [...r.debtItems]
     .filter((i) => (i.status === "overdue" || i.status === "due_now") && !i.evidenceFound)
-    .sort((a, b) => (b.estimatedCostHigh ?? 0) - (a.estimatedCostHigh ?? 0))
-    .slice(0, 3);
-  if (!items.length) return "No significant undocumented maintenance gaps found.";
-  const vehicle = [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" ") || "this vehicle";
-  const mileage = r.vehicle.currentMileage?.toLocaleString();
-  const names = items.map((i) => i.displayName);
-  const nameStr = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]}, and ${names[2]}`;
-  const low = Math.round((r.debtEstimateLow ?? 200) / 50) * 50;
-  const high = Math.round((r.debtEstimateHigh ?? low) / 50) * 50;
-  const ask = Math.round(((low + high) / 2) / 100) * 100;
-  return `The service records for this ${vehicle} don't show ${nameStr} being serviced${mileage ? ` by ${mileage} miles` : ""}. These services typically cost $${low.toLocaleString()}–$${high.toLocaleString()} to address. I'd like to reduce the asking price by $${ask.toLocaleString()} to account for this deferred maintenance.`;
+    .sort((a, b) => (b.estimatedCostHigh ?? 0) - (a.estimatedCostHigh ?? 0));
+    
+  const names = overdueItems.slice(0, 2).map(i => i.displayName).join(" and ");
+  const cost = Math.round(((r.debtEstimateLow ?? 0) + (r.debtEstimateHigh ?? r.debtEstimateLow ?? 0)) / 2 / 100) * 100;
+  const vehicle = `${r.vehicle.year} ${r.vehicle.make} ${r.vehicle.model}`;
+  
+  const mvAvg = r.marketValueEstimate ? (r.marketValueEstimate.low + r.marketValueEstimate.high) / 2 : 0;
+  const target = Math.round((mvAvg - cost) / 100) * 100;
+
+  if (dealQuality === "overpriced") {
+    return {
+      state: "Overpaying",
+      uiMessage: "Price is high relative to its condition.",
+      script: `I’ve reviewed the service history for the ${vehicle}. It looks like it’s due for ${names} soon, which typically runs ~$${cost.toLocaleString()}. With those items factored in, the current price is a bit above market. If you can get closer to $${target.toLocaleString()}, I’d love to make this work.`,
+      tone: "Objective & Firm"
+    };
+  }
+
+  if (dealQuality === "fair_deal") {
+    return {
+      state: "Fair Deal",
+      uiMessage: "Price is fair, but these gaps are your leverage.",
+      script: `I’m really interested in the ${vehicle}. The records don’t show ${names} being done, and those services run about $${cost.toLocaleString()}. If you can help me out on the price to cover that deferred maintenance, I’m ready to move forward.`,
+      tone: "Fair & Collaborative"
+    };
+  }
+
+  if (dealQuality === "strong_buy") {
+    return {
+      state: "Strong Buy",
+      uiMessage: "Excellent value. Close the deal quickly.",
+      script: `The ${vehicle} looks great. I noticed it’s just about due for ${names} (~$${cost.toLocaleString()}). If we can adjust the price slightly to account for that, I can come out today and close the deal.`,
+      tone: "Ready & Motivated"
+    };
+  }
+
+  return {
+    state: "Reviewing",
+    uiMessage: "Enter price to see negotiation strategy.",
+    script: `I noticed the ${vehicle} is due for ${names} soon. This typically costs about $${cost.toLocaleString()} to address.`,
+    tone: "Informative"
+  };
 }
 
 function computeDealQuality(
   askingPrice: number,
   marketLow: number,
   marketHigh: number,
-  maintenanceMid: number
+  conditionAdj: number
 ): DealQuality {
-  const effectiveCost = askingPrice + maintenanceMid;
-  const marketMid = (marketLow + marketHigh) / 2;
-  const ratio = effectiveCost / marketMid;
-  if (ratio < 0.88) return "great_deal";
-  if (ratio < 0.97) return "good_deal";
-  if (ratio <= 1.06) return "fair_deal";
+  const targetPrice = ((marketLow + marketHigh) / 2) - conditionAdj;
+  const ratio = askingPrice / targetPrice;
+
+  if (ratio < 0.92) return "strong_buy";
+  if (ratio < 1.05) return "fair_deal";
   return "overpriced";
 }
 
@@ -124,17 +169,76 @@ function getConfidenceNote(r: MaintenanceDebtAuditResult): string {
   return "";
 }
 
+function getForwardMaintenance(r: MaintenanceDebtAuditResult) {
+  const upcoming = r.upcomingItems || [];
+  const make = r.vehicle.make?.toLowerCase() || "";
+  const year = r.vehicle.year || new Date().getFullYear();
+  const mileage = r.vehicle.currentMileage || 0;
+  const age = new Date().getFullYear() - year;
+  
+  // 1. Assign Profile
+  let profile = "Moderate Maintenance";
+  let profileMsg = "Maintenance costs are fairly typical for this type of vehicle.";
+  let riskNote = "No major issues expected with standard care.";
+
+  const lowMaintMakes = ["toyota", "honda", "lexus"];
+  const highMaintMakes = ["audi", "bmw", "mercedes", "mercedes-benz", "land rover", "porsche", "range rover", "volkswagen", "jaguar"];
+  
+  if (lowMaintMakes.includes(make)) {
+    profile = "Low Maintenance";
+    profileMsg = "This is generally a low-maintenance platform with predictable costs.";
+    riskNote = "Reliability is a strong point for this model.";
+  } else if (highMaintMakes.includes(make)) {
+    profile = "Higher Maintenance";
+    profileMsg = "This platform tends to have higher maintenance costs over time.";
+    riskNote = "Expect higher parts and labor costs for routine items.";
+  }
+  
+  if (age > 10 || mileage > 110000) {
+    profile = "Aging / Higher Variability";
+    profileMsg = "At this age, expect more variability in maintenance and occasional repairs.";
+    riskNote = "Set aside a reserve for unscheduled mechanical work.";
+  }
+
+  // 2. Calculate Costs
+  const debtLow = r.debtEstimateLow ?? 0;
+  const debtHigh = r.debtEstimateHigh ?? debtLow;
+  
+  // Forward cost includes 10% of existing debt (trickle down) + upcoming + baseline
+  const upcomingCostLow = upcoming.reduce((acc, i) => acc + (i.estimatedCostLow ?? 0), 0);
+  const upcomingCostHigh = upcoming.reduce((acc, i) => acc + (i.estimatedCostHigh ?? i.estimatedCostLow ?? 0), 0);
+  
+  let baseline = 400;
+  if (profile === "Higher Maintenance") baseline = 800;
+  if (profile === "Aging / Higher Variability") baseline = 600;
+
+  const low = Math.round((debtLow * 0.1 + upcomingCostLow + baseline) / 100) * 100;
+  const high = Math.round((debtHigh * 0.15 + upcomingCostHigh + baseline * 1.5) / 100) * 100;
+  
+  const isHighRisk = r.verdict === "high_risk" || r.verdict === "walk_away" || upcoming.some(i => i.severity === "high");
+  
+  return {
+    range: `$${low.toLocaleString()}–$${high.toLocaleString()}`,
+    profile: profileMsg,
+    note: isHighRisk ? "Plan for mechanical attention within 12 months." : riskNote,
+    behavior: isHighRisk ? "Elevated cost due to deferred items." : "Stable ownership costs expected."
+  };
+}
+
 // ─── Adaptive mode badge ──────────────────────────────────────────────────────
 
 function getAdaptiveMode(r: MaintenanceDebtAuditResult): { label: string; sublabel: string; color: string; bg: string; border: string } {
-  // Future: if (r.ppiFindings?.length) return { label: "Inspection Report", sublabel: "Confirmed findings · Highest confidence", color: "#16A34A", bg: "rgba(22,163,74,0.08)", border: "rgba(22,163,74,0.25)" };
+  const hasPPI = r.normalizedHistory?.some(h => h.is_ppi);
+  if (hasPPI) {
+    return { label: "Inspection Report", sublabel: "Confirmed condition · Level 1 confidence", color: "#16A34A", bg: "rgba(22,163,74,0.08)", border: "rgba(22,163,74,0.25)" };
+  }
   if (r.scheduleSource === "vehicle_databases") {
-    return { label: "CARFAX + OEM Schedule", sublabel: "VIN-matched · High confidence", color: "#0369A1", bg: "rgba(3,105,161,0.07)", border: "rgba(3,105,161,0.2)" };
+    return { label: "CARFAX + OEM Schedule", sublabel: "VIN-matched · Level 2 confidence", color: "#0369A1", bg: "rgba(3,105,161,0.07)", border: "rgba(3,105,161,0.2)" };
   }
   if (r.scheduleSource === "ai_estimated") {
-    return { label: "CARFAX Only", sublabel: "AI-estimated schedule · Inferred, not confirmed", color: "#B45309", bg: "rgba(180,83,9,0.07)", border: "rgba(180,83,9,0.2)" };
+    return { label: "CARFAX Only", sublabel: "AI-estimated schedule · Level 3 confidence", color: "#B45309", bg: "rgba(180,83,9,0.07)", border: "rgba(180,83,9,0.2)" };
   }
-  return { label: "General Guidance", sublabel: "No service history · Watchouts + OEM only", color: "#6B7280", bg: "rgba(107,114,128,0.07)", border: "rgba(107,114,128,0.2)" };
+  return { label: "General Guidance", sublabel: "No records found", color: "#6B7280", bg: "rgba(107,114,128,0.07)", border: "rgba(107,114,128,0.2)" };
 }
 
 // ─── Done condition ────────────────────────────────────────────────────────────
@@ -216,86 +320,90 @@ function TypingDots() {
 
 // ─── Decision Card helpers ────────────────────────────────────────────────────
 
-function getCardAction(item: MaintenanceDebtItem, isAiEstimated: boolean): { label: string; color: string; bg: string } {
-  if (item.severity === "high" && !isAiEstimated && (item.status === "overdue" || item.status === "due_now"))
-    return { label: "Do This Now", color: "#DC2626", bg: "rgba(220,38,38,0.08)" };
-  if (isAiEstimated || item.severity === "medium")
-    return { label: "Ask Seller", color: "#D97706", bg: "rgba(245,158,11,0.08)" };
-  return { label: "Monitor", color: "#6366F1", bg: "rgba(99,102,241,0.08)" };
+function getCategorization(item: MaintenanceDebtItem, result?: MaintenanceDebtAuditResult): "Real Concerns" | "Expected Maintenance" | "Informational" {
+  const mechanical = ["Brakes", "Tires", "Suspension", "Transmission", "Timing Belt", "Cooling System", "Leaks", "Oil Leak"].some(k => item.displayName.toLowerCase().includes(k.toLowerCase()) || item.canonicalService.toLowerCase().includes(k.toLowerCase()));
+  const isPpi = result?.normalizedHistory?.some(h => item.matchingHistoryEventIds?.includes(h.id) && h.is_ppi);
+  if (mechanical || isPpi || item.severity === "high") return "Real Concerns";
+  if (item.status === "upcoming" || item.severity === "low") return "Informational";
+  return "Expected Maintenance";
 }
 
-function buildItemScript(item: MaintenanceDebtItem, vehicle: string, isAiEstimated: boolean): string {
-  const lo = item.estimatedCostLow ?? 0;
-  const hi = item.estimatedCostHigh ?? lo;
-  const mid = Math.round((lo + hi) / 2 / 50) * 50;
-  if (isAiEstimated) {
-    return `I noticed there’s no record of ${item.displayName} in the service history for this ${vehicle}. Could you share documentation, or would you consider adjusting the price to reflect this?`;
+function getSeverityEmoji(cat: string): string {
+  if (cat === "Real Concerns") return "🔴";
+  if (cat === "Expected Maintenance") return "🟡";
+  return "⚪";
+}
+
+function getIntervalLabel(item: MaintenanceDebtItem): string {
+  if (item.dueMileage) return `${item.dueMileage.toLocaleString()} mi`;
+  return "Scheduled interval";
+}
+
+function getLastSeenRecord(item: MaintenanceDebtItem, result?: MaintenanceDebtAuditResult): string {
+  if (item.matchingHistoryEventIds?.length && result?.normalizedHistory) {
+    const latest = result.normalizedHistory.find(h => item.matchingHistoryEventIds.includes(h.id));
+    if (latest) return `${latest.date || "Multiple records"} (${latest.mileage?.toLocaleString() ?? "?"} mi)`;
   }
-  const costStr = lo > 0 ? ` This typically runs $${lo.toLocaleString()}–$${hi.toLocaleString()}.` : "";
-  const askStr = mid > 0 ? ` I’d like to adjust the price by ~$${mid.toLocaleString()} to account for this.` : "";
-  return `The service records for this ${vehicle} don’t show ${item.displayName} being completed.${costStr}${askStr}`;
+  return "No record found";
 }
 
 interface DecisionCardProps {
   item: MaintenanceDebtItem;
   vehicle: string;
   isAiEstimated: boolean;
+  result: MaintenanceDebtAuditResult;
   onAskAdvisor: (q: string) => void;
+  ledgerAction: ItemAction;
+  onLedgerChange: (id: string, action: ItemAction) => void;
 }
 
-function DecisionCard({ item, vehicle, isAiEstimated, onAskAdvisor }: DecisionCardProps) {
-  const [copied, setCopied] = useState(false);
-  const action = getCardAction(item, isAiEstimated);
-  const lStyle = getItemLabelStyle(item, isAiEstimated);
-  const lLabel = getItemLabel(item, isAiEstimated);
-  const script = buildItemScript(item, vehicle, isAiEstimated);
-  const cost = item.estimatedCostLow != null
-    ? `$${item.estimatedCostLow.toLocaleString()}–$${(item.estimatedCostHigh ?? item.estimatedCostLow).toLocaleString()}`
-    : null;
+function DecisionCard({ item, vehicle, isAiEstimated, result, onAskAdvisor, ledgerAction, onLedgerChange }: DecisionCardProps) {
+  const cat = getCategorization(item, result);
+  const emoji = getSeverityEmoji(cat);
+  const interval = getIntervalLabel(item);
+  const lastSeen = getLastSeenRecord(item, result);
 
   return (
-    <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 14, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: lStyle.color, background: lStyle.bg, padding: "2px 7px", borderRadius: 5 }}>{lLabel}</span>
-            {item.severity === "high" && !isAiEstimated && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#DC2626", letterSpacing: "0.04em" }}>⚡ HIGH PRIORITY</span>
-            )}
-          </div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#0F172A", lineHeight: 1.3 }}>{item.displayName}</div>
-          {cost && <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>{cost} estimated</div>}
+    <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 16, padding: "20px", display: "flex", flexDirection: "column", gap: 12, opacity: ledgerAction !== "negotiate" ? 0.6 : 1, transition: "opacity 0.2s" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18 }}>{emoji}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>{item.displayName}</span>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: action.color, background: action.bg, border: `1px solid ${action.color}33`, padding: "4px 10px", borderRadius: 20, whiteSpace: "nowrap", flexShrink: 0 }}>
-          {action.label}
-        </span>
+        <div style={{ display: "flex", background: "#F1F5F9", padding: 3, borderRadius: 10, gap: 2 }}>
+          {[
+            { id: "negotiate", label: "Include", icon: Tag },
+            { id: "done", label: "Fixed", icon: CheckCircle },
+            { id: "seller_fix", label: "Seller Fix", icon: Shield }
+          ].map((a) => {
+            const isActive = ledgerAction === a.id;
+            return (
+              <button
+                key={a.id}
+                onClick={() => onLedgerChange(item.canonicalService, a.id as ItemAction)}
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", background: isActive ? "#fff" : "transparent", color: isActive ? "#0F172A" : "#64748B", boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.1)" : "none", transition: "all 0.15s" }}
+              >
+                {a.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
-
-      {/* Quick take */}
       <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.6 }}>{item.reasoning}</div>
-
-      {/* Script */}
-      <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", letterSpacing: "0.07em", marginBottom: 5 }}>SCRIPT — COPY &amp; SEND TO SELLER</div>
-        <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.65, margin: 0, fontStyle: "italic" }}>“{script}”</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, background: "#F8FAFC", padding: "10px 14px", borderRadius: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", letterSpacing: "0.05em", marginBottom: 2 }}>EXPECTED</div>
+          <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{interval}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", letterSpacing: "0.05em", marginBottom: 2 }}>LAST SEEN</div>
+          <div style={{ fontSize: 12, color: item.evidenceFound ? "#16A34A" : "#64748B", fontWeight: 600 }}>{lastSeen}</div>
+        </div>
       </div>
-
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button
-          onClick={() => { navigator.clipboard.writeText(script); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500, color: copied ? "#16A34A" : "#64748B", background: "none", border: `1px solid ${copied ? "rgba(22,163,74,0.35)" : "#E2E8F0"}`, cursor: "pointer", padding: "5px 10px", borderRadius: 8, transition: "all 0.15s" }}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "Copied!" : "Copy script"}
-        </button>
-        <button
-          onClick={() => onAskAdvisor(`Tell me more about ${item.displayName} on this vehicle — how concerned should I be and how does it affect my decision?`)}
-          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500, color: "#6366F1", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)", cursor: "pointer", padding: "5px 10px", borderRadius: 8, transition: "all 0.15s" }}
-        >
-          <Send size={11} /> Ask advisor
-        </button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {["Is this a big deal?", "Can this wait?", "How do I negotiate this?"].map((q) => (
+          <button key={q} onClick={() => onAskAdvisor(`${q} about ${item.displayName}`)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 15, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", color: "#64748B" }}>{q}</button>
+        ))}
       </div>
     </div>
   );
@@ -330,12 +438,25 @@ export default function MaintenanceAuditPage() {
   const [vehicleWatchouts, setVehicleWatchouts] = useState<any[]>([]);
 
   // Price + deal quality
-  const [askingPriceInput, setAskingPriceInput] = useState("");
-  const [askingPrice, setAskingPrice] = useState<number | null>(null);
+  // Responsive and Navigation
+  const [isMobile, setIsMobile] = useState(false);
+  const [activeTab, setActiveTab] = useState<"summary" | "negotiate" | "pitch" | "advisor" | "details">("summary");
 
-  // Market estimate — fetched client-side (non-blocking, never delays audit)
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Market estimate
   const [marketEstimate, setMarketEstimate] = useState<{ low: number; high: number; confidence: string } | null>(null);
-  const [marketLoading, setMarketLoading] = useState(false);
+
+  // Negotiation Ledger
+  const [ledger, setLedger] = useState<Record<string, ItemAction>>({});
+  const updateLedger = (id: string, action: ItemAction) => {
+    setLedger(prev => ({ ...prev, [id]: action }));
+  };
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -426,7 +547,7 @@ export default function MaintenanceAuditPage() {
   // ── Fetch market estimate (client-side, non-blocking) ──────────────────────
   useEffect(() => {
     if (!result?.vehicle.year || !result?.vehicle.make || !result?.vehicle.model) return;
-    setMarketLoading(true);
+    // setMarketLoading(true); // removed in UX refactor
     fetch("/api/market-estimate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -440,8 +561,7 @@ export default function MaintenanceAuditPage() {
     })
       .then((r) => r.json())
       .then((data) => { if (data.low && data.high) setMarketEstimate(data); })
-      .catch(() => {})
-      .finally(() => setMarketLoading(false));
+       .catch(() => {});
   }, [result?.vehicle.year, result?.vehicle.make, result?.vehicle.model]);
 
   // ── Apply asking price ─────────────────────────────────────────────────
@@ -449,6 +569,48 @@ export default function MaintenanceAuditPage() {
     const n = parseFloat(askingPriceInput.replace(/[^0-9.]/g, ""));
     setAskingPrice(isNaN(n) ? null : n);
   };
+
+  // ── Derived values ────────────────────────────────────────────────────────────
+  const verdictCfg = (result && VERDICT_CONFIG[result.verdict]) ?? VERDICT_CONFIG.proceed_caution;
+  const VerdictIcon = verdictCfg.icon;
+  const vehicleLabel = result ? ([result.vehicle.year, result.vehicle.make, result.vehicle.model].filter(Boolean).join(" ") || result.vehicle.vin || "Unknown Vehicle") : "Unknown Vehicle";
+  const isAiEstimated = result ? (result.scheduleSource === "ai_estimated") : false;
+  const allOverdue = result ? result.debtItems.filter((i) => i.status === "overdue" || i.status === "due_now") : [];
+
+  // conditionDebt = only include items with action "negotiate" (default)
+  const conditionDebt = (result && allOverdue.length) ? allOverdue.reduce((acc, i) => {
+    const action = ledger[i.canonicalService] || "negotiate";
+    if (action !== "negotiate") return acc;
+    return acc + (((i.estimatedCostLow ?? 0) + (i.estimatedCostHigh ?? i.estimatedCostLow ?? 0)) / 2);
+  }, 0) : 0;
+
+  // Filter result for guidance based on ledger
+  const resultForGuidance = result ? {
+    ...result,
+    debtItems: result.debtItems.filter(i => (ledger[i.canonicalService] || "negotiate") === "negotiate"),
+    debtEstimateLow: allOverdue.reduce((acc, i) => (ledger[i.canonicalService] || "negotiate") === "negotiate" ? acc + (i.estimatedCostLow ?? 0) : acc, 0),
+    debtEstimateHigh: allOverdue.reduce((acc, i) => (ledger[i.canonicalService] || "negotiate") === "negotiate" ? acc + (i.estimatedCostHigh ?? i.estimatedCostLow ?? 0) : acc, 0)
+  } : null;
+
+  const mv = result ? (marketEstimate ?? result.marketValueEstimate) : null;
+  const effectiveCost = (askingPrice != null && result) ? askingPrice + conditionDebt : null;
+  const dealQuality: DealQuality = (effectiveCost != null && mv)
+    ? computeDealQuality(effectiveCost, mv.low, mv.high, 0)
+    : "unknown";
+  const dealCfg = DEAL_QUALITY_CONFIG[dealQuality];
+  const guidance = resultForGuidance ? getNegotiationGuidance(resultForGuidance, askingPrice, dealQuality) : null;
+
+  // Card advisor handler
+  const handleCardAskAdvisor = useCallback((question: string) => {
+    setChatCollapsed(false);
+    sendMessage(question);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 150);
+  }, [sendMessage]);
+
+  const realConcerns = allOverdue.filter(i => getCategorization(i, result || undefined) === "Real Concerns");
+  const expectedMaintenance = allOverdue.filter(i => getCategorization(i, result || undefined) === "Expected Maintenance");
+  const verifiedHistory = result?.normalizedHistory?.filter(h => !h.is_ppi) || [];
+  const showSticky = result && !loading;
 
   // ── Guards ───────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -464,38 +626,6 @@ export default function MaintenanceAuditPage() {
     </div>
   );
 
-  // ── Derived values ────────────────────────────────────────────────────────────
-  const verdictCfg = VERDICT_CONFIG[result.verdict] ?? VERDICT_CONFIG.proceed_caution;
-  const VerdictIcon = verdictCfg.icon;
-  const vehicleLabel = [result.vehicle.year, result.vehicle.make, result.vehicle.model].filter(Boolean).join(" ") || result.vehicle.vin || "Unknown Vehicle";
-  const isAiEstimated = result.scheduleSource === "ai_estimated";
-  const topItems = getTopItems(result);
-  const allOverdue = result.debtItems.filter((i) => i.status === "overdue" || i.status === "due_now");
-  const extraCount = Math.max(0, allOverdue.length - topItems.length);
-  const decisionItems = topItems.slice(0, 3); // max 3 decision cards
-  const pitch = buildNegotiationPitch(result);
-
-  // Card advisor handler — scrolls chat into view and auto-sends
-  const handleCardAskAdvisor = useCallback((question: string) => {
-    setChatCollapsed(false);
-    sendMessage(question);
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 150);
-  }, [sendMessage]);
-
-  // conditionDebt = maintenance mid for now; when PPI is live, add inspectionFindingsCost
-  const maintenanceMid = ((result.debtEstimateLow ?? 0) + (result.debtEstimateHigh ?? result.debtEstimateLow ?? 0)) / 2;
-  const conditionDebt = maintenanceMid; // TODO: + inspectionFindingsMid when PPI lands
-
-  // Deal quality: effectiveCost = askingPrice + conditionDebt (per spec)
-  const mv = marketEstimate ?? result.marketValueEstimate;
-  const effectiveCost = askingPrice != null ? askingPrice + conditionDebt : null;
-  const dealQuality: DealQuality = (effectiveCost != null && mv)
-    ? computeDealQuality(effectiveCost, mv.low, mv.high, 0) // 0: conditionDebt already included
-    : "unknown";
-  const dealCfg = DEAL_QUALITY_CONFIG[dealQuality];
-  const confidenceNote = getConfidenceNote(result);
-  const isLowConfidence = result.confidence === "low" || isAiEstimated;
-
   return (
     <div style={{ minHeight: "100vh", background: "#F8FAFC", fontFamily: "'Inter', -apple-system, sans-serif", color: "#0F172A" }}>
       <style>{`
@@ -504,382 +634,376 @@ export default function MaintenanceAuditPage() {
         @keyframes wrenchDot { 0%,100%{opacity:.3;transform:translateY(0)} 50%{opacity:1;transform:translateY(-3px)} }
       `}</style>
 
-      {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(248,250,252,0.97)", backdropFilter: "blur(12px)", borderBottom: "1px solid #E2E8F0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => router.back()} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#64748B", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", borderRadius: 8 }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <div style={{ width: 1, height: 20, background: "#E2E8F0" }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#0F172A" }}>{vehicleLabel}</span>
-          {result.vehicle.currentMileage && (
-            <span style={{ fontSize: 13, color: "#64748B" }}>{result.vehicle.currentMileage.toLocaleString()} mi</span>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: verdictCfg.color, background: verdictCfg.bg, border: `1px solid ${verdictCfg.border}`, padding: "5px 12px", borderRadius: 20 }}>
-          <VerdictIcon size={13} />
-          {verdictCfg.label}
-        </div>
-      </header>
-
-      {/* ── Main content ──────────────────────────────────────────────────────── */}
-      <main style={{ maxWidth: 920, margin: "0 auto", padding: "24px 16px 48px", display: "flex", flexDirection: "column", gap: 16 }}>
-
-        {/* AI-estimated banner */}
-        {isAiEstimated && (
-          <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: 10, padding: "10px 16px", fontSize: 13, color: "#92400E", display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <Info size={14} style={{ marginTop: 1, flexShrink: 0 }} />
-            <span>Results are based on an AI-estimated schedule — some gaps may be due to incomplete records rather than missed maintenance. Verify key items before deciding.</span>
+      {/* ── Main content (Responsive: Tabs on Mobile, Stacked on Desktop) ─────────── */}
+      <main style={{ maxWidth: 920, margin: "0 auto", padding: isMobile ? "16px 16px 140px" : "40px 24px 120px", display: "flex", flexDirection: "column", gap: isMobile ? 16 : 32 }}>
+        
+        {/* DESKTOP BRANDING / TOP BAR */}
+        {!isMobile && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#6366F1", letterSpacing: "0.1em", marginBottom: 4 }}>WRENCHCHECK AUDIT</div>
+              <h1 style={{ fontSize: 36, fontWeight: 900, color: "#0F172A", margin: 0 }}>{vehicleLabel}</h1>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 12, color: "#94A3B8", fontWeight: 700, marginBottom: 4 }}>CURRENT MILEAGE</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: "#0F172A" }}>{result.vehicle.currentMileage?.toLocaleString()} mi</div>
+            </div>
           </div>
         )}
 
-        {/* ── 1. SUMMARY CARD ──────────────────────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 16 }}>
-
-          {/* Verdict column */}
-          <div style={{ background: verdictCfg.bg, border: `1px solid ${verdictCfg.border}`, borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* Adaptive mode badge */}
-            {(() => {
-              const mode = getAdaptiveMode(result);
-              return (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: mode.color, background: mode.bg, border: `1px solid ${mode.border}`, borderRadius: 20, padding: "3px 10px", alignSelf: "flex-start" }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: mode.color, flexShrink: 0 }} />
-                  {mode.label} · {mode.sublabel}
+        {/* ── SECTION 1: VERDICT & DRIVERS (SUMMARY) ────────────────────────── */}
+        {(isMobile ? activeTab === "summary" : true) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 24 }}>
+             {/* Headline Card */}
+             <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 32, padding: isMobile ? "28px 24px" : "40px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}>
+                <div style={{ background: verdictCfg.bg, color: verdictCfg.color, border: `1px solid ${verdictCfg.border}`, borderRadius: "50%", padding: 24, marginBottom: 8 }}>
+                  <VerdictIcon size={48} />
                 </div>
-              );
-            })()}
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <VerdictIcon size={18} color={verdictCfg.color} />
-              <span style={{ fontSize: 17, fontWeight: 700, color: verdictCfg.color }}>{verdictCfg.label}</span>
-            </div>
-            <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.5, margin: 0 }}>{verdictCfg.tagline}</p>
-
-            {result.debtEstimateLow != null && (
-              <div style={{ borderTop: `1px solid ${verdictCfg.border}`, paddingTop: 12 }}>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", letterSpacing: "-0.02em" }}>
-                  ${result.debtEstimateLow.toLocaleString()}–${(result.debtEstimateHigh ?? result.debtEstimateLow).toLocaleString()}
+                <div style={{ fontSize: isMobile ? 24 : 32, fontWeight: 900, color: "#0F172A", lineHeight: 1.1 }}>{verdictCfg.label}</div>
+                <div style={{ fontSize: isMobile ? 15 : 18, color: "#64748B", lineHeight: 1.5, maxWidth: "560px" }}>{verdictCfg.tagline}</div>
+                
+                {/* Why this matters (Single sentence Insight) */}
+                <div style={{ marginTop: 8, fontSize: 14, color: "#475569", fontWeight: 600, background: "#F8FAFC", padding: "10px 20px", borderRadius: 12, border: "1px solid #F1F5F9" }}>
+                   💡 {allOverdue.length > 0 ? "Deferred maintenance can lead to expensive failures if ignored." : "This appears to be a well-maintained vehicle with no immediate risks."}
                 </div>
-                <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>estimated catch-up cost</div>
-              </div>
-            )}
 
-            {/* Done condition */}
-            <div style={{ borderTop: `1px solid ${verdictCfg.border}`, paddingTop: 12, fontSize: 12, color: "#475569", lineHeight: 1.55 }}>
-              <span style={{ fontWeight: 600, color: "#64748B", fontSize: 10, letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>WHEN YOU'RE DONE</span>
-              {getDoneCondition(result.verdict, topItems)}
-            </div>
-
-            {/* Explicit next step */}
-            <div style={{ background: "rgba(255,255,255,0.6)", border: `1px solid ${verdictCfg.border}`, borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#0F172A", fontWeight: 500, display: "flex", alignItems: "flex-start", gap: 8 }}>
-              <span style={{ color: verdictCfg.color, fontWeight: 700, flexShrink: 0 }}>→</span>
-              <span>{getNextStep(result.verdict, dealQuality, topItems, askingPrice, conditionDebt)}</span>
-            </div>
-          </div>
-
-          {/* What Matters column */}
-          <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 16, padding: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 14 }}>WHAT MATTERS</div>
-            {topItems.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#94A3B8" }}>No high-priority items identified.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                {topItems.map((item, i) => {
-                  const lStyle = getItemLabelStyle(item, isAiEstimated);
-                  const lLabel = getItemLabel(item, isAiEstimated);
-                  const isExpanded = whatMattersExpanded === item.canonicalService;
-                  return (
-                    <div key={item.canonicalService} style={{ borderBottom: i < topItems.length - 1 ? "1px solid #F1F5F9" : "none", paddingBottom: 12, marginBottom: 12 }}>
-                      <div onClick={() => setWhatMattersExpanded(isExpanded ? null : item.canonicalService)} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: lStyle.color, background: lStyle.bg, padding: "2px 7px", borderRadius: 5, whiteSpace: "nowrap", marginTop: 2, flexShrink: 0 }}>{lLabel}</span>
-                        <span style={{ fontSize: 14, fontWeight: 500, color: "#0F172A", flex: 1 }}>{item.displayName}</span>
-                        <span style={{ color: "#CBD5E1", flexShrink: 0, marginTop: 2 }}>{isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
-                      </div>
-                      {isExpanded && (
-                        <div style={{ marginTop: 8, paddingLeft: 0, fontSize: 13, color: "#64748B", lineHeight: 1.5 }}>
-                          {item.reasoning}
-                          {item.estimatedCostLow && (
-                            <span style={{ display: "inline-block", marginTop: 4, fontSize: 12, fontWeight: 500, color: "#475569" }}>
-                              {" "}~${item.estimatedCostLow}–${item.estimatedCostHigh ?? item.estimatedCostLow} est.
-                            </span>
-                          )}
-                        </div>
-                      )}
+                {/* What's driving this (Top 2 issues) */}
+                {allOverdue.length > 0 && (
+                  <div style={{ marginTop: 24, width: "100%", textAlign: "left" }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "#94A3B8", letterSpacing: "0.1em", marginBottom: 12, textAlign: "center" }}>WHAT'S DRIVING THIS:</div>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+                       {allOverdue.slice(0, 2).map((item, idx) => (
+                         <div key={idx} style={{ padding: "14px 18px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                           <div style={{ fontSize: 18 }}>🔴</div>
+                           <div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>{item.displayName}</div>
+                              <div style={{ fontSize: 12, color: "#64748B" }}>
+                                {item.daysOverdue && item.daysOverdue > 365 
+                                  ? `Overdue by ~${Math.round(item.daysOverdue/365)} years` 
+                                  : "Likely never serviced"}
+                                {" · "}
+                                <span style={{ color: "#EF4444", fontWeight: 700 }}>{item.severity === "high" ? "mechanical risk" : "deferred debt"}</span>
+                              </div>
+                           </div>
+                         </div>
+                       ))}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-            {extraCount > 0 && (
-              <button onClick={() => setBreakdownOpen(true)} style={{ fontSize: 12, color: "#6366F1", background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>
-                +{extraCount} more items · View full breakdown ↓
-              </button>
-            )}
-          </div>
-        </div>
+                  </div>
+                )}
+                
+                <div style={{ marginTop: 12, width: "100%", background: "#F8FAFC", borderRadius: 20, padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid #F1F5F9" }}>
+                   <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "#94A3B8", marginBottom: 2 }}>EST. CATCH-UP DEBT</div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: "#0F172A" }}>${result.debtEstimateLow?.toLocaleString()}–${(result.debtEstimateHigh ?? result.debtEstimateLow)?.toLocaleString()}</div>
+                   </div>
+                   {isMobile && (
+                     <button onClick={() => setActiveTab("negotiate")} style={{ background: "#0F172A", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                       Offer Strategy
+                     </button>
+                   )}
+                </div>
+             </div>
 
-        {/* ── 2. DECISION CARDS ─────────────────────────────────────────────── */}
-        {decisionItems.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>DECISION CARDS</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {decisionItems.map((item) => (
-                <DecisionCard
-                  key={item.canonicalService}
-                  item={item}
-                  vehicle={vehicleLabel}
-                  isAiEstimated={isAiEstimated}
-                  onAskAdvisor={handleCardAskAdvisor}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── 3. DEAL QUALITY CARD ─────────────────────────────────────────────── */}
-        <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 16, padding: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <Tag size={15} color="#64748B" />
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Deal Quality</span>
-            {askingPrice && mv && (
-              <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: dealCfg.color, background: dealCfg.bg, padding: "3px 10px", borderRadius: 20 }}>{dealCfg.label}</span>
-            )}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
-            {/* Market estimate */}
-            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, letterSpacing: "0.05em", marginBottom: 4 }}>MARKET VALUE</div>
-              {marketLoading ? (
-                <div style={{ fontSize: 13, color: "#CBD5E1" }}>Estimating…</div>
-              ) : mv ? (
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>${mv.low.toLocaleString()}–${mv.high.toLocaleString()}</div>
-              ) : (
-                <div style={{ fontSize: 13, color: "#CBD5E1" }}>Unavailable</div>
-              )}
-              {mv && <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>AI estimate · {mv.confidence} confidence</div>}
-            </div>
-
-            {/* Condition debt */}
-            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, letterSpacing: "0.05em", marginBottom: 4 }}>CONDITION ADJUSTMENT</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: conditionDebt > 0 ? "#C2410C" : "#16A34A" }}>+${Math.round(conditionDebt).toLocaleString()}</div>
-              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>maintenance catch-up</div>
-            </div>
-
-            {/* Effective cost */}
-            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, letterSpacing: "0.05em", marginBottom: 4 }}>EFFECTIVE COST</div>
-              {effectiveCost != null ? (
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>${Math.round(effectiveCost).toLocaleString()}</div>
-              ) : (
-                <div style={{ fontSize: 13, color: "#CBD5E1" }}>Enter price →</div>
-              )}
-              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>price + condition debt</div>
-            </div>
-          </div>
-
-          {/* Price input */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <DollarSign size={14} color="#94A3B8" />
-            <input
-              value={askingPriceInput}
-              onChange={(e) => setAskingPriceInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && applyPrice()}
-              placeholder="Enter asking price (e.g. 38000)"
-              style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "9px 14px", fontSize: 14, background: "#F8FAFC", color: "#0F172A" }}
-            />
-            <button
-              onClick={applyPrice}
-              style={{ padding: "9px 18px", borderRadius: 10, background: "#1E293B", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-            >
-              Analyze
-            </button>
-          </div>
-
-          {/* Deal quality result — price-aware language, never absolute */}
-          {effectiveCost != null && mv && (
-            <div style={{ marginTop: 12, padding: "12px 14px", background: dealCfg.bg, borderRadius: 10, fontSize: 13, color: "#374151", lineHeight: 1.5 }}>
-              {dealQuality === "great_deal" && `At $${askingPrice!.toLocaleString()} with ~$${Math.round(conditionDebt).toLocaleString()} in expected work, your effective cost is well below market — the price reflects the condition risk.`}
-              {dealQuality === "good_deal" && `At $${askingPrice!.toLocaleString()}, the price already accounts for most of the ~$${Math.round(conditionDebt).toLocaleString()} in expected work. Reasonable deal — use the maintenance gaps to push a bit further.`}
-              {dealQuality === "fair_deal" && `At $${askingPrice!.toLocaleString()} with ~$${Math.round(conditionDebt).toLocaleString()} in expected work, you’re roughly at market. The price should reflect the condition — try negotiating down by $${Math.round(conditionDebt / 100) * 100 || 500}.`}
-              {dealQuality === "overpriced" && `At $${askingPrice!.toLocaleString()} plus ~$${Math.round(conditionDebt).toLocaleString()} in expected work, the effective cost exceeds market value. This only makes sense if priced ~$${Math.round((effectiveCost - mv.high) / 100) * 100} lower.`}
-            </div>
-          )}
-          {/* Fallback when no price — never say walk away, always frame around price */}
-          {effectiveCost == null && (
-            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(148,163,184,0.08)", borderRadius: 10, fontSize: 13, color: "#64748B", lineHeight: 1.5 }}>
-              {conditionDebt > 800
-                ? `This vehicle has ~$${Math.round(conditionDebt).toLocaleString()} in expected catch-up work. It only makes sense if priced below market by at least that amount.`
-                : `Add the asking price above to see whether this deal makes sense given the expected catch-up cost.`
-              }
-            </div>
-          )}
-        </div>
-
-        {/* ── 3. BUYING ADVISOR CHAT ───────────────────────────────────────────── */}
-        <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 16, overflow: "hidden" }}>
-          {/* Chat header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: chatCollapsed ? "none" : "1px solid #F1F5F9" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: chatLoading ? "#F59E0B" : "#22C55E", transition: "background 0.5s" }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Buying Advisor</span>
-              <span style={{ fontSize: 12, color: "#94A3B8" }}>· Pre-purchase intelligence</span>
-            </div>
-            <button onClick={() => setChatCollapsed((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#64748B", background: "none", border: "1px solid #E2E8F0", cursor: "pointer", padding: "5px 10px", borderRadius: 8 }}>
-              {chatCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-              {chatCollapsed ? "Expand" : "Collapse"}
-            </button>
-          </div>
-
-          {!chatCollapsed && (
-            <>
-              {/* Messages */}
-              <div style={{ maxHeight: 500, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
-                {chatMessages.map((msg, i) => (
-                  <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
-                    {msg.role === "user" ? (
-                      <div style={{ background: "#1E293B", color: "#F8FAFC", borderRadius: "18px 18px 4px 18px", padding: "10px 16px", maxWidth: "72%", fontSize: 14, lineHeight: 1.5 }}>
-                        {msg.content}
+             {/* Vehicle Profile Card (Next 12-18 months) */}
+             <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 28, padding: isMobile ? 24 : 32 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#94A3B8", letterSpacing: "0.1em", marginBottom: 20 }}>FUTURE OWNERSHIP COST</div>
+                {(() => {
+                  const fm = getForwardMaintenance(result!);
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.5fr", gap: 24, alignItems: "center" }}>
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: "#0F172A" }}>~{fm.range}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#64748B" }}>Expected in next 12–18mo</div>
                       </div>
-                    ) : (
-                      <div style={{ fontSize: 14, color: "#0F172A", lineHeight: 1.7, maxWidth: "88%" }}>
-                        {msg.content}
-                      </div>
-                    )}
-                    {msg.chips && msg.chips.length > 0 && msg.role === "assistant" && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                        {msg.chips.map((chip, ci) => (
-                          <button key={ci} onClick={() => sendMessage(chip)} style={{ fontSize: 13, padding: "6px 14px", borderRadius: 20, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", color: "#374151", transition: "border-color 0.15s, background 0.15s" }}
-                            onMouseEnter={(e) => { (e.target as HTMLElement).style.borderColor = "#6366F1"; (e.target as HTMLElement).style.background = "rgba(99,102,241,0.05)"; }}
-                            onMouseLeave={(e) => { (e.target as HTMLElement).style.borderColor = "#E2E8F0"; (e.target as HTMLElement).style.background = "#fff"; }}>
-                            {chip}
-                          </button>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {[fm.profile, fm.behavior, fm.note].map((t, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 15, color: "#475569", fontWeight: 500 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#6366F1", flexShrink: 0 }} />
+                            {t}
+                          </div>
                         ))}
                       </div>
-                    )}
+                    </div>
+                  );
+                })()}
+             </div>
+
+             {isMobile && (
+               <button 
+                  onClick={() => setActiveTab("negotiate")} 
+                  style={{ background: "#4F46E5", color: "#fff", border: "none", borderRadius: 20, padding: "20px", fontSize: 16, fontWeight: 800, cursor: "pointer", boxShadow: "0 10px 15px -3px rgba(79, 70, 229, 0.4)" }}
+               >
+                  What should I offer?
+               </button>
+             )}
+          </div>
+        )}
+
+        {/* ── SECTION 2: PRICING & TOP ISSUES (NEGOTIATE) ────────────────────── */}
+        {(isMobile ? activeTab === "negotiate" : true) && (
+           <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 32 }}>
+              {/* Scoreboard / Ledger */}
+              <div style={{ background: "#0F172A", border: "1px solid #1E293B", borderRadius: 32, padding: isMobile ? "24px" : "32px", color: "#fff", boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8" }}>NEGOTIATION LEDGER</div>
+                    <div style={{ fontSize: 11, fontWeight: 900, background: dealCfg.bg, color: dealCfg.color, padding: "6px 14px", borderRadius: 20 }}>{dealCfg.label.toUpperCase()}</div>
                   </div>
-                ))}
-                {chatLoading && <TypingDots />}
-                <div ref={chatEndRef} />
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                    <div style={{ position: "relative" }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "#64748B", marginBottom: 10, letterSpacing: "0.05em" }}>SELLER'S ASKING PRICE</div>
+                      <span style={{ position: "absolute", left: 18, bottom: 15, color: "#94A3B8", fontSize: 20 }}>$</span>
+                      <input
+                        value={askingPriceInput}
+                        onChange={(e) => setAskingPriceInput(e.target.value)}
+                        onBlur={applyPrice}
+                        className="price-input"
+                        placeholder="e.g. 42,000"
+                        style={{ width: "100%", border: "2px solid #1E293B", borderRadius: 16, padding: "16px 20px 16px 36px", fontSize: 22, fontWeight: 800, background: "rgba(255,255,255,0.03)", color: "#fff" }}
+                      />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                       <div style={{ background: "rgba(255,255,255,0.02)", padding: 20, borderRadius: 20, border: "1px solid rgba(255,255,255,0.05)" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 6 }}>MARKET AVERAGE</div>
+                          <div style={{ fontSize: 24, fontWeight: 900 }}>${mv ? Math.round((mv.low + mv.high)/2).toLocaleString() : "—"}</div>
+                       </div>
+                       <div style={{ background: "rgba(255,255,255,0.02)", padding: 20, borderRadius: 20, border: "1px solid rgba(255,255,255,0.05)" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 6 }}>MAINT. ADJUSTMENT</div>
+                          <div style={{ fontSize: 24, fontWeight: 900, color: "#F87171" }}>−${Math.round(conditionDebt).toLocaleString()}</div>
+                       </div>
+                    </div>
+
+                    <div style={{ background: "linear-gradient(135deg, #1E293B 0%, #0F172A 100%)", padding: "28px", borderRadius: 24, border: "1px solid rgba(255,255,255,0.1)", textAlign: "center" }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: "#4ADE80", marginBottom: 8, letterSpacing: "0.1em" }}>TARGET OFFER PRICE</div>
+                      <div style={{ fontSize: 48, fontWeight: 950, color: "#fff", letterSpacing: "-0.03em" }}>${mv ? (Math.round((mv.low + mv.high)/2) - Math.round(conditionDebt)).toLocaleString() : "—"}</div>
+                    </div>
+                  </div>
               </div>
 
-              {/* Input */}
-              <div style={{ borderTop: "1px solid #F1F5F9", padding: "12px 16px", display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  ref={inputRef}
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage(chatInput)}
-                  placeholder="Ask about this car…"
-                  disabled={chatLoading}
-                  style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 24, padding: "10px 18px", fontSize: 14, background: "#F8FAFC", color: "#0F172A", transition: "border-color 0.15s" }}
-                  onFocus={(e) => (e.target.style.borderColor = "#6366F1")}
-                  onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}
-                />
-                <button
-                  onClick={() => sendMessage(chatInput)}
-                  disabled={!chatInput.trim() || chatLoading}
-                  style={{ width: 40, height: 40, borderRadius: "50%", background: chatInput.trim() && !chatLoading ? "#1E293B" : "#E2E8F0", border: "none", cursor: chatInput.trim() && !chatLoading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s", flexShrink: 0 }}
-                >
-                  <Send size={15} color={chatInput.trim() && !chatLoading ? "#fff" : "#94A3B8"} />
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* ── 4. FULL ANALYSIS (collapsed) ─────────────────────────────────────── */}
-        <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 16, overflow: "hidden" }}>
-          <button
-            onClick={() => setBreakdownOpen((v) => !v)}
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#374151" }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <TrendingDown size={14} color="#64748B" />
-              Full Analysis · {allOverdue.length} item{allOverdue.length !== 1 ? "s" : ""} overdue / undocumented
-            </span>
-            {breakdownOpen ? <ChevronUp size={14} color="#94A3B8" /> : <ChevronDown size={14} color="#94A3B8" />}
-          </button>
-
-          {breakdownOpen && (
-            <div style={{ borderTop: "1px solid #F1F5F9", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 20 }}>
-
-              {/* Overdue / due items */}
-              {allOverdue.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", color: "#94A3B8", marginBottom: 10 }}>
-                    {isAiEstimated ? "UNDOCUMENTED / UNVERIFIED" : "MISSING / OVERDUE"}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {allOverdue.map((item) => {
-                      const lStyle = getItemLabelStyle(item, isAiEstimated);
-                      const lLabel = getItemLabel(item, isAiEstimated);
-                      return (
-                        <div key={item.canonicalService} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#F8FAFC", borderRadius: 10 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: lStyle.color, background: lStyle.bg, padding: "2px 7px", borderRadius: 5, whiteSpace: "nowrap", flexShrink: 0 }}>{lLabel}</span>
-                          <span style={{ fontSize: 13, fontWeight: 500, color: "#0F172A", flex: 1 }}>{item.displayName}</span>
-                          {item.estimatedCostLow && <span style={{ fontSize: 12, color: "#64748B", whiteSpace: "nowrap" }}>~${item.estimatedCostLow}–${item.estimatedCostHigh ?? item.estimatedCostLow}</span>}
-                          <span style={{ fontSize: 11, color: item.severity === "high" ? "#EF4444" : item.severity === "medium" ? "#F59E0B" : "#94A3B8" }}>{item.severity}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Upcoming */}
-              {result.upcomingItems.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", color: "#94A3B8", marginBottom: 10 }}>UPCOMING</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {result.upcomingItems.map((item) => (
-                      <div key={item.canonicalService} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#F8FAFC", borderRadius: 10 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#64748B", background: "rgba(100,116,139,0.12)", padding: "2px 7px", borderRadius: 5, flexShrink: 0 }}>Upcoming</span>
-                        <span style={{ fontSize: 13, color: "#374151", flex: 1 }}>{item.displayName}</span>
-                        {item.dueMileage && <span style={{ fontSize: 12, color: "#94A3B8" }}>due at {item.dueMileage.toLocaleString()} mi</span>}
-                      </div>
+              {/* Priority Issues */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                 <div style={{ fontSize: 12, fontWeight: 900, color: "#94A3B8", letterSpacing: "0.1em" }}>TOP 3 PRIORITY ISSUES</div>
+                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {allOverdue.slice(0, 3).map((item) => (
+                      <DecisionCard
+                        key={item.canonicalService}
+                        item={item}
+                        vehicle={vehicleLabel}
+                        isAiEstimated={isAiEstimated}
+                        result={result}
+                        onAskAdvisor={() => setActiveTab("advisor")}
+                        ledgerAction={ledger[item.canonicalService] || "negotiate"}
+                        onLedgerChange={updateLedger}
+                      />
                     ))}
-                  </div>
+                 </div>
+              </div>
+
+              {!isMobile && (
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                   <button 
+                      onClick={() => setActiveTab("pitch")}
+                      style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 16, padding: "16px 32px", fontSize: 15, fontWeight: 700, color: "#0F172A", cursor: "pointer" }}
+                    >
+                      View Full Negotiation Pitch →
+                    </button>
                 </div>
               )}
+           </div>
+        )}
 
-              {/* Completed */}
-              {result.completedItems.length > 0 && (
-                <div>
-                  <button onClick={() => setCompletedOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: completedOpen ? 10 : 0 }}>
-                    {completedOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                    COMPLETED ({result.completedItems.length})
-                  </button>
-                  {completedOpen && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {result.completedItems.map((item) => (
-                        <div key={item.canonicalService} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#F0FDF4", borderRadius: 10 }}>
-                          <CheckCircle size={12} color="#22C55E" style={{ flexShrink: 0 }} />
-                          <span style={{ fontSize: 13, color: "#374151", flex: 1 }}>{item.displayName}</span>
-                          {item.lastServiceDate && <span style={{ fontSize: 12, color: "#94A3B8" }}>{item.lastServiceDate.slice(0, 7)}</span>}
+        {/* ── SECTION 3: PITCH (SCRIPT) ───────────────────────────────────────── */}
+        {(isMobile ? activeTab === "pitch" : true) && (
+           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 32, padding: isMobile ? 24 : 40 }}>
+                <div style={{ fontSize: 12, fontWeight: 950, color: "#6366F1", letterSpacing: "0.12em", marginBottom: 24 }}>THE PERFECT PITCH</div>
+                
+                <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 24, padding: isMobile ? "24px" : "40px", position: "relative" }}>
+                   <div style={{ fontSize: isMobile ? 18 : 22, color: "#0F172A", lineHeight: 1.6, fontStyle: "italic", whiteSpace: "pre-wrap" }}>
+                     “{guidance?.script}”
+                   </div>
+                   <div style={{ marginTop: 32, display: "flex", gap: 16 }}>
+                      <button 
+                        onClick={() => { navigator.clipboard.writeText(guidance?.script || ""); alert("Copied to clipboard!"); }}
+                        style={{ flex: 1, background: "#0F172A", color: "#fff", border: "none", borderRadius: 16, padding: "18px", fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                      >
+                        <Copy size={18} /> Copy to Clipboard
+                      </button>
+                      <button 
+                        onClick={() => window.open(`sms:?&body=${encodeURIComponent(guidance?.script || "")}`)}
+                        style={{ flex: 1, background: "#EEF2FF", color: "#4F46E5", border: "none", borderRadius: 16, padding: "18px", fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                      >
+                         Send as Text
+                      </button>
+                   </div>
+                </div>
+
+                <div style={{ marginTop: 32, background: "#F1F5F9", borderRadius: 20, padding: 24 }}>
+                   <div style={{ fontSize: 11, fontWeight: 900, color: "#475569", marginBottom: 16, letterSpacing: "0.1em" }}>STRATEGY BREAKDOWN</div>
+                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+                      {[
+                        { label: "Tone Control", value: guidance?.tone },
+                        { label: "Data Leverage", value: "References specific verified gaps" },
+                        { label: "Price Logic", value: "Ties directly to market fair value" },
+                        { label: "Expert Proof", value: "Condition-based adjustment" }
+                      ].map((t, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                           <div style={{ marginTop: 4 }}><Check size={16} color="#10B981" strokeWidth={3} /></div>
+                           <div>
+                              <div style={{ fontSize: 12, fontWeight: 800, color: "#0F172A" }}>{t.label}</div>
+                              <div style={{ fontSize: 13, color: "#64748B" }}>{t.value}</div>
+                           </div>
                         </div>
                       ))}
+                   </div>
+                </div>
+              </div>
+           </div>
+        )}
+
+        {/* ── SECTION 4 & 5: ADVISOR & FULL BREAKDOWN ───────────────────────── */}
+        {(isMobile ? (activeTab === "advisor" || activeTab === "details") : true) && (
+           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 24 }}>
+              
+              {/* Advisor Chat */}
+              {(activeTab === "advisor" || !isMobile) && (
+                <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 32, overflow: "hidden", display: "flex", flexDirection: "column", height: isMobile ? "70vh" : "600px" }}>
+                  <div style={{ padding: "20px 24px", borderBottom: "1px solid #F1F5F9", display: "flex", gap: 12, alignItems: "center", background: "#F8FAFC" }}>
+                    <Shield size={20} color="#6366F1" />
+                    <span style={{ fontSize: 16, fontWeight: 800 }}>Buying Advisor</span>
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                       {[1,2,3].map(i => <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: "#10B981" }} />)}
                     </div>
-                  )}
+                  </div>
+                  
+                  <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+                    {chatMessages.map((msg, i) => (
+                        <div key={i} style={{ marginBottom: 24, display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                          <div style={{ 
+                            maxWidth: "88%", 
+                            padding: "14px 20px", 
+                            borderRadius: msg.role === "user" ? "24px 24px 4px 24px" : "24px 24px 24px 4px",
+                            background: msg.role === "user" ? "#0F172A" : "#F1F5F9",
+                            color: msg.role === "user" ? "#fff" : "#0F172A",
+                            fontSize: 15,
+                            lineHeight: 1.6,
+                            boxShadow: msg.role === "user" ? "0 4px 12px rgba(0,0,0,0.1)" : "none"
+                          }}>
+                            {msg.content}
+                          </div>
+                        </div>
+                    ))}
+                    {chatLoading && <TypingDots />}
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  <div style={{ borderTop: "1px solid #F1F5F9", padding: "20px", background: "#F8FAFC" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                      {["Is this a big deal?", "Can this wait?", "How do I negotiate?"].map((q) => (
+                        <button key={q} onClick={() => sendMessage(q)} disabled={chatLoading} style={{ padding: "10px 18px", borderRadius: 24, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", color: "#0F172A", fontSize: 13, fontWeight: 700, transition: "all 0.1s" }}>{q}</button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Negotiation pitch */}
-              <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", color: "#94A3B8" }}>NEGOTIATION PITCH</div>
-                  <CopyButton text={pitch} label="Copy pitch" />
-                </div>
-                <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px", fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
-                  {pitch}
-                </div>
-              </div>
+              {/* Full Details */}
+              {(activeTab === "details" || !isMobile) && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                   <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 32, padding: 32 }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: "#94A3B8", letterSpacing: "0.1em", marginBottom: 24 }}>FULL SERVICE BREAKDOWN</div>
+                      
+                      {/* Upcoming */}
+                      {result.upcomingItems.length > 0 && (
+                        <div style={{ marginBottom: 32 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: "#64748B", marginBottom: 12 }}>UPCOMING (NEXT 12 MO)</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {result.upcomingItems.map((item) => (
+                              <div key={item.canonicalService} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "#F8FAFC", borderRadius: 16 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#CBD5E1" }} />
+                                <span style={{ fontSize: 14, color: "#374151", flex: 1, fontWeight: 700 }}>{item.displayName}</span>
+                                {item.dueMileage && <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 700 }}>{item.dueMileage.toLocaleString()} mi</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-            </div>
-          )}
-        </div>
+                      {/* Verified History */}
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: "#16A34A", marginBottom: 12 }}>VERIFIED & SOLID ({verifiedHistory.length})</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {verifiedHistory.slice(0, 5).map((h, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#64748B", padding: "10px 0", borderBottom: "1px solid #F1F5F9" }}>
+                              <div>
+                                <div style={{ fontWeight: 800, color: "#0F172A" }}>{h.rawDescription}</div>
+                                <div style={{ fontSize: 11, color: "#94A3B8" }}>{h.date || "Date unknown"}</div>
+                              </div>
+                              <span style={{ fontSize: 12, fontWeight: 900, color: "#16A34A" }}>{h.mileage?.toLocaleString()} mi</span>
+                            </div>
+                          ))}
+                          {verifiedHistory.length > 5 && (
+                             <div style={{ fontSize: 12, color: "#94A3B8", textAlign: "center", marginTop: 8 }}>+ {verifiedHistory.length - 5} more records verified</div>
+                          )}
+                        </div>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+           </div>
+        )}
+
       </main>
+
+      {/* ── Mobile Bottom Navigation ───────────────────────────────────────── */}
+      {isMobile && (
+        <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 72, background: "#fff", borderTop: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 200, paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {[
+            { id: "summary", label: "Verdict", icon: CheckCircle },
+            { id: "negotiate", label: "Price", icon: Tag },
+            { id: "pitch", label: "Pitch", icon: MessageSquare },
+            { id: "advisor", label: "Advisor", icon: Shield },
+            { id: "details", label: "Details", icon: TrendingDown }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: isActive ? "#4F46E5" : "#94A3B8", padding: "8px 4px" }}
+              >
+                <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                <span style={{ fontSize: 10, fontWeight: 700 }}>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      {/* ── Sticky Negotiation Bar (Floating above Mobile Nav or Desktop Bottom) ── */}
+      {showSticky && (isMobile ? activeTab !== "negotiate" : true) && (
+        <div style={{ position: "fixed", bottom: isMobile ? 72 : 24, left: isMobile ? 0 : "50%", transform: isMobile ? "none" : "translateX(-50%)", width: isMobile ? "100%" : "auto", minWidth: isMobile ? "none" : 500, background: "rgba(15, 23, 42, 0.95)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: isMobile ? 0 : 20, padding: "16px 32px", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.3)" }}>
+          <div style={{ display: "flex", gap: 40 }}>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 900, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginBottom: 2 }}>CATCH-UP COST</div>
+              <div style={{ fontSize: 20, fontWeight: 950, color: "#fff" }}>${Math.round(conditionDebt).toLocaleString()}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 900, color: "#4ADE80", letterSpacing: "0.1em", marginBottom: 2 }}>TARGET PRICE</div>
+              <div style={{ fontSize: 20, fontWeight: 950, color: "#4ADE80" }}>${mv ? (Math.round((mv.low + mv.high)/2) - Math.round(conditionDebt)).toLocaleString() : "—"}</div>
+            </div>
+          </div>
+          <button 
+            onClick={() => { navigator.clipboard.writeText(guidance?.script || ""); alert("Negotiation pitch copied!"); }}
+            style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)", color: "#fff", border: "none", fontSize: 14, fontWeight: 800, cursor: "pointer", boxShadow: "0 4px 6px rgba(0,0,0,0.2)" }}
+          >
+            Copy Pitch
+          </button>
+        </div>
+      )}
     </div>
   );
 }
