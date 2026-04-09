@@ -1,0 +1,1441 @@
+"use client";
+
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useRouter, useParams } from "next/navigation";
+import {
+  Terminal, Database, ChevronLeft, ChevronDown, ChevronRight,
+  ArrowRight, Bot, Check, Clock, AlertTriangle,
+  HelpCircle, Pencil, X, Copy, Star
+} from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { generateCaseReport } from "@/lib/logic";
+import { CURRENT_ANALYSIS_VERSION } from "@/lib/analysisVersion";
+
+const DEBUG_FALLBACK = {
+  vehicle: "2008 Audi S4 Avant",
+  services: [
+    {
+      name: "Power Steering Fluid Service",
+      price: 245.79,
+      typicalRange: { min: 80, max: 150 },
+      decision: "verify",
+      explanation: {
+        quickTake: "Verify before proceeding",
+        whenItMatters: ["Visible leak", "Steering noise"],
+        whenYouCanWait: ["No symptoms", "Routine recommendation"],
+        whatToConfirm: ["Is this based on inspection or mileage?"]
+      }
+    },
+    {
+      name: "Manual Transmission Gear Oil Change",
+      price: 178.89,
+      typicalRange: { min: 100, max: 180 },
+      decision: "proceed",
+      explanation: {
+        quickTake: "Reasonable maintenance item",
+        whenItMatters: ["Grinding shifts", "High mileage since last service"],
+        whenYouCanWait: ["Recently serviced", "No symptoms"],
+        whatToConfirm: ["When was it last changed?"]
+      }
+    }
+  ],
+  summary: {
+    fixNow: ["Manual Transmission Gear Oil Change"],
+    askFirst: ["Power Steering Fluid Service"],
+    wait: []
+  },
+  shop: {
+    name: "Urban Autocare",
+    rating: 4.8,
+    grade: "A",
+    summary: "Premium independent with strong reputation"
+  }
+};
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function cleanText(text: string | undefined | null) {
+  if (!text) return "";
+  let s = text.replace(/\\u201c/g, '“').replace(/\\u201d/g, '”').replace(/\\u2019/g, '’');
+  s = s.replace(/\[.*?\]/g, '').replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type SystemState = "pause" | "proceed" | "wait" | "reconsider";
+type BannerState = "proceed" | "verify" | "wait" | "reconsider";
+
+type CardUpdate = {
+  state: SystemState;
+  headline: string;
+  subheadline: string;
+  reasoning: string;
+  whatIdDo: string;
+  nextBestAction: string;
+};
+
+type ServiceIntelligence = {
+  quick_take: string;
+  price_assessment: string;
+  vehicle_specific_insight: string;
+  when_it_matters: string[];
+  when_you_can_wait: string[];
+  what_to_confirm: string[];
+  negotiation_tips: string[];
+  confidence: "low" | "medium" | "high";
+};
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+const BANNER_CFG: Record<BannerState, {
+  bg: string; border: string; iconBg: string; text: string;
+  headline: string; confidenceLine: string;
+}> = {
+  proceed:    { bg: "bg-emerald-600",  border: "border-emerald-700", iconBg: "bg-white/20", text: "text-white", headline: "Looks reasonable — you can likely proceed", confidenceLine: "Justified based on the evidence." },
+  verify:     { bg: "bg-amber-500",    border: "border-amber-600",   iconBg: "bg-white/20", text: "text-white", headline: "PAUSE before approving this",             confidenceLine: "We need one or two details before this becomes an easy yes." },
+  wait:       { bg: "bg-blue-600",     border: "border-blue-700",    iconBg: "bg-white/20", text: "text-white", headline: "Wait or monitor — not urgent right now",  confidenceLine: "No immediate urgency detected." },
+  reconsider: { bg: "bg-orange-600",   border: "border-orange-700",  iconBg: "bg-white/20", text: "text-white", headline: "High risk of upsell — get a second opinion", confidenceLine: "Cannot justify this right now." },
+};
+
+const CARD_CFG: Record<SystemState, {
+  bg: string; iconBg: string; bar: string; text: string; headline: string;
+}> = {
+  pause:      { bg: "bg-amber-50 border-amber-200",    iconBg: "bg-amber-100",   bar: "bg-amber-400",   text: "text-amber-700",   headline: "PAUSE before approving this" },
+  proceed:    { bg: "bg-emerald-50 border-emerald-200", iconBg: "bg-emerald-100", bar: "bg-emerald-500", text: "text-emerald-700", headline: "Looks reasonable — you can likely proceed" },
+  wait:       { bg: "bg-blue-50 border-blue-200",       iconBg: "bg-blue-100",    bar: "bg-blue-400",    text: "text-blue-700",    headline: "Wait or monitor — not urgent right now" },
+  reconsider: { bg: "bg-orange-50 border-orange-200",   iconBg: "bg-orange-100",  bar: "bg-orange-400",  text: "text-orange-700",  headline: "High risk of upsell — get a second opinion" },
+};
+
+// Map system state → banner state
+function toBannerState(s: SystemState | null, hasRed: boolean): BannerState {
+  if (!s) return hasRed ? "reconsider" : "verify";
+  if (s === "pause") return "verify";
+  return s as BannerState;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+export default function AuditPage() {
+  const router = useRouter();
+  const { id } = useParams();
+  const caseId = id as string;
+
+  // Core data
+  const [caseData, setCaseData] = useState<any>(null);
+  const [report, setReport] = useState<{
+    red: any[]; yellow: any[]; green: any[]; shop_context?: any;
+  } | null>(null);
+
+  // Chat
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [chatCardState, setChatCardState] = useState<CardUpdate | null>(null);
+  const [showVersionNotice, setShowVersionNotice] = useState(false);
+  const [chatClearedAt, setChatClearedAt] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+
+  // Legacy follow-ups (backward compat — not rendered, just passed to /api/chat)
+  const [followUps] = useState<Record<string, any>>({});
+
+  // Vehicle Health Profile (Watch Outs)
+  const [watchOuts, setWatchOuts] = useState<any[]>([]);
+  const [watchOutsLoading, setWatchOutsLoading] = useState(false);
+  const [showHealthProfile, setShowHealthProfile] = useState(false);
+
+  // Vehicle editing
+  const [vehicleEditMode, setVehicleEditMode] = useState(false);
+  const [vehicleEdit, setVehicleEdit] = useState({ year: "", make: "", model: "" });
+
+  // Service intelligence — keyed by `${service}::${vehicleStr}`
+  const [intelligence, setIntelligence] = useState<
+    Record<string, ServiceIntelligence | "loading" | "error">
+  >({});
+
+  // Which service cards have their collapsible open
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+
+  // V3 Core Workspace active state tracking
+  const [cardSteps, setCardSteps] = useState<Record<string, 1 | 2 | 3>>({});
+  const [cardDecisions, setCardDecisions] = useState<Record<string, 'accept' | 'deny' | 'hold' | 'skip'>>({});
+  const [activeService, setActiveService] = useState<string | null>(null);
+
+  // Debug states
+  const [useDebugMode, setUseDebugMode] = useState(false);
+  const [debugRawTextPresent, setDebugRawTextPresent] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    supabase.from('line_items').select('*').eq('case_id', caseId).then(({ data }) => {
+       setDebugRawTextPresent(data && data.length > 0);
+    });
+  }, [caseId]);
+
+  // Shop comparison
+  type ShopComparison = { shops: any[]; ranked: any[]; decision_summary: string };
+  const [shopComparison, setShopComparison] = useState<ShopComparison | null>(null);
+  const [shopLoading, setShopLoading] = useState(false);
+
+  // Computed vehicle string
+  const vehicleStr = useMemo(() => {
+    if (!caseData) return null;
+    const { vehicle_year, vehicle_make, vehicle_model } = caseData;
+    const str = [vehicle_year, vehicle_make, vehicle_model].filter(Boolean).sort().reverse().join(" ").trim();
+    // Sort reverse just to get year first if it's numeric-ish, or just use explicit order
+    const ordered = [vehicle_year, vehicle_make, vehicle_model].filter(Boolean).join(" ").trim();
+    return ordered || null;
+  }, [caseData]);
+  
+  const openaiError = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('openai_error') : null;
+
+  // ─── Data fetch ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!caseId) return;
+    async function fetchData() {
+      const { data: caseRes } = await supabase
+        .from("cases").select("*").eq("id", caseId).single();
+      setCaseData(caseRes);
+      if (caseRes) {
+        setVehicleEdit({
+          year: caseRes.vehicle_year || "",
+          make: caseRes.vehicle_make || "",
+          model: caseRes.vehicle_model || "",
+        });
+      }
+
+      let generatedReport: any = null;
+      try {
+        generatedReport = await generateCaseReport(caseId);
+        setReport(generatedReport);
+        
+        // Hydrate Workspace State
+        if (generatedReport?.workspace_state) {
+            const steps: Record<string, 1|2|3> = {};
+            const decisions: Record<string, any> = {};
+            for (const [key, val] of Object.entries(generatedReport.workspace_state as Record<string, any>)) {
+                if (val.step) steps[key] = val.step;
+                if (val.decision) decisions[key] = val.decision;
+            }
+            if (Object.keys(steps).length > 0) setCardSteps(steps);
+            if (Object.keys(decisions).length > 0) setCardDecisions(decisions);
+        }
+      } catch (e) { console.error("Failed to load report", e); }
+
+      const versionKey = `wrench_${caseId}_analysis_v`;
+      const clearedKey = `wrench_${caseId}_chat_cleared`;
+      const storedClearedAt =
+        typeof window !== "undefined" ? localStorage.getItem(clearedKey) : null;
+      if (storedClearedAt) setChatClearedAt(storedClearedAt);
+
+      let msgQuery = supabase
+        .from("messages").select("*").eq("case_id", caseId)
+        .order("created_at", { ascending: true });
+      if (storedClearedAt) msgQuery = msgQuery.gt("created_at", storedClearedAt);
+      const { data: msgRes } = await msgQuery;
+      setMessages(msgRes || []);
+
+      const storedVersion =
+        typeof window !== "undefined" ? localStorage.getItem(versionKey) : null;
+      if (
+        storedVersion &&
+        parseInt(storedVersion) < CURRENT_ANALYSIS_VERSION &&
+        (msgRes?.length || 0) > 0
+      ) setShowVersionNotice(true);
+      if (typeof window !== "undefined")
+        localStorage.setItem(versionKey, CURRENT_ANALYSIS_VERSION.toString());
+
+      if (!msgRes?.length && generatedReport) {
+        let intro = "I've reviewed the estimate. Ask anything or tell me what the shop said and I'll help you decide.";
+        if (generatedReport.red.length > 0) {
+          intro = `The ${generatedReport.red[0].normalized_name} is priced above market. Tell me what the shop said and I'll give you my take.`;
+        } else if (generatedReport.yellow.length > 0) {
+          intro = `The ${generatedReport.yellow[0].normalized_name} needs some clarification. Tell me what they said.`;
+        }
+        setMessages([{ role: "assistant", content: intro }]);
+      }
+    }
+    fetchData();
+  }, [caseId]);
+
+  // ─── Watch Outs Fetching ───────────────────────────────────────────────────
+  useEffect(() => {
+    const vInfo = caseData?.vehicle_info;
+    const vStr = vInfo ? `${vInfo.year} ${vInfo.make} ${vInfo.model}`.trim() : "";
+    if (vStr) {
+      setWatchOutsLoading(true);
+      fetch("/api/vehicle-watchouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle: vStr }),
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.watchOuts) setWatchOuts(data.watchOuts);
+      })
+      .catch(err => console.error("WatchOut fetch err:", err))
+      .finally(() => setWatchOutsLoading(false));
+    }
+  }, [caseData?.vehicle_info]);
+
+  const updateWorkspaceState = useCallback((serviceName: string, update: { decision?: string, step?: number }) => {
+     fetch('/api/workspace', {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, serviceName, update })
+     }).catch(e => console.error("Workspace sync error", e));
+  }, [caseId]);
+
+  const stats = useMemo(() => {
+    if (!report) return { red: 0, yellow: 0, green: 0 };
+    return {
+      red: report.red.length,
+      yellow: report.yellow.length,
+      green: report.green.length,
+    };
+  }, [report]);
+
+  const resultModel = useMemo(() => {
+    if (!report) return null;
+    
+    const services: any[] = [];
+    
+    const processItems = (items: any[], defaultDecision: "proceed" | "verify" | "wait") => {
+      (items || []).forEach(item => {
+        const name = item.normalized_name === "Uncategorized Service" || item.normalized_name === "Unclassified Service" || !item.normalized_name 
+             ? (item.raw_text || "Unknown Service") 
+             : item.normalized_name;
+        
+        let decision = defaultDecision;
+        const stateOver = chatCardState?.state; 
+        if (stateOver && chatCardState?.subheadline?.includes(name)) {
+            decision = stateOver as "proceed" | "verify" | "wait";
+        }
+
+        const cacheKey = `${name}::${vehicleStr}`;
+        const intelObj = intelligence[cacheKey]; 
+
+        services.push({
+          name,
+          raw_item: item,
+          price: typeof item.price === 'number' ? item.price : parseFloat(item.price) || 0,
+          typicalRange: { min: item.market_range?.low || 0, max: item.market_range?.high || 0, average: item.market_range?.average || 0 },
+          decision,
+          explanation: (intelObj === "loading" || intelObj === "error" || !intelObj) 
+              ? { quickTake: item.pricing_explanation || "Analyzing data...", whenItMatters: [], whenYouCanWait: [], whatToConfirm: item.check_list || [] } 
+              : {
+                  quickTake: intelObj.quick_take || item.pricing_explanation,
+                  whenItMatters: intelObj.when_it_matters || [],
+                  whenYouCanWait: intelObj.when_you_can_wait || [],
+                  whatToConfirm: intelObj.what_to_confirm || item.check_list || []
+              }
+        });
+      });
+    };
+
+    processItems(report.red, "wait");
+    processItems(report.yellow, "verify");
+    processItems(report.green, "proceed");
+
+    const fixNow: string[] = [];
+    const askFirst: string[] = [];
+    const wait: string[] = [];
+
+    services.forEach(s => {
+      if (s.decision === "proceed") fixNow.push(s.name);
+      else if (s.decision === "verify") askFirst.push(s.name);
+      else wait.push(s.name);
+    });
+
+    const intel = report.shop_context?.intelligence;
+
+    const baseModel = {
+      vehicle: vehicleStr,
+      services,
+      summary: { fixNow, askFirst, wait },
+      shop: {
+        name: caseData?.shop_name || "Unknown Shop",
+        rating: intel?.rating || 0,
+        grade: intel?.shop_grade || "Unknown",
+        summary: report.shop_context?.recommendation
+      }
+    };
+    
+    console.log("=== FINAL RESULTS MODEL ===");
+    console.log(JSON.stringify(useDebugMode ? DEBUG_FALLBACK : baseModel, null, 2));
+    console.log("===========================");
+
+    return useDebugMode ? DEBUG_FALLBACK : baseModel;
+  }, [report, chatCardState, intelligence, vehicleStr, caseData, useDebugMode]);
+
+  const savingsData = useMemo(() => {
+     if (!resultModel) return null;
+     const services = resultModel.services;
+     let originalTotal = 0;
+     let approvedTotal = 0;
+     let pendingTotal = 0;
+     let deferredMaintenance = 0;
+     let deniedSavings = 0;
+     let actionCount = 0;
+
+     const masterScripts: { service: string, text: string }[] = [];
+
+     services.forEach((service: any) => {
+         const name = service.name;
+         originalTotal += service.price;
+         
+         const decision = (cardDecisions[name] || service.decision) as string;
+         if (cardDecisions[name]) actionCount += 1; // Explicit user interaction
+
+         if (decision === 'deny' || decision === 'skip') {
+             deniedSavings += service.price;
+         } else if (decision === 'hold' || decision === 'wait') {
+             deferredMaintenance += service.price;
+         } else if (decision === 'accept' || decision === 'proceed') {
+             approvedTotal += service.price;
+             
+             // Master script matching logic for accepted but high priced items
+             const priceHigh = service.typicalRange.max || 0;
+             if (priceHigh > 0 && service.price > priceHigh) {
+                 const diff = (service.price - priceHigh).toFixed(2);
+                 masterScripts.push({
+                     service: name,
+                     text: `For the ${name}, I am approving it, but since you are $${diff} over normal market bounds, can we talk about applying a courtesy discount?`
+                 });
+             }
+         } else {
+             pendingTotal += service.price;
+         }
+     });
+
+     const estimatedSavings = originalTotal - approvedTotal - deferredMaintenance; // True savings vs Original
+
+     return { 
+       originalTotal, 
+       approvedTotal, 
+       pendingTotal,
+       deferredMaintenance,
+       deniedSavings, 
+       estimatedSavings,
+       actionCount, 
+       totalActionsNeeded: services.length,
+       masterScripts 
+     };
+  }, [resultModel, cardDecisions]);
+
+  // ─── Vehicle save ────────────────────────────────────────────────────────────
+  const saveVehicle = async () => {
+    await supabase.from("cases").update({ 
+      vehicle_year: vehicleEdit.year,
+      vehicle_make: vehicleEdit.make,
+      vehicle_model: vehicleEdit.model 
+    }).eq("id", caseId);
+    setCaseData((prev: any) => ({ 
+      ...prev, 
+      vehicle_year: vehicleEdit.year,
+      vehicle_make: vehicleEdit.make,
+      vehicle_model: vehicleEdit.model 
+    }));
+    setIntelligence({}); // clear cache so intelligence re-runs with new vehicle
+    setVehicleEditMode(false);
+  };
+
+  // ─── Service intelligence fetch ──────────────────────────────────────────────
+  const fetchIntelligence = useCallback(async (
+    name: string, price: number, priceRange: { low?: number; high?: number }
+  ) => {
+    const cacheKey = `${name}::${vehicleStr}`;
+    if (intelligence[cacheKey]) return;
+    const intel = report?.shop_context?.intelligence;
+    setIntelligence(prev => ({ ...prev, [cacheKey]: "loading" }));
+    try {
+      const recentUserContext = messages
+        .filter(m => m.role === "user").slice(-2)
+        .map((m: any) => m.content).join(" ") || undefined;
+
+      const res = await fetch("/api/service-explanation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service: name,
+          vehicle: vehicleStr || "Detecting Vehicle...", 
+          price,
+          typical_range: { min: priceRange.low, max: priceRange.high },
+          shop: intel ? {
+            name: intel.name,
+            rating: intel.rating,
+            review_count: intel.review_count,
+            shop_type: intel.shop_type || "independent",
+            specialization: intel.specialization,
+          } : undefined,
+          user_context: recentUserContext,
+        }),
+      });
+      const data = await res.json();
+      setIntelligence(prev => ({
+        ...prev,
+        [cacheKey]: data.intelligence || "error",
+      }));
+    } catch {
+      setIntelligence(prev => ({ ...prev, [cacheKey]: "error" }));
+    }
+  }, [vehicleStr, intelligence, report, messages]);
+
+  // Toggle collapsible + trigger fetch (For any remaining interactive parts, if any)
+  const toggleCard = useCallback((name: string, price: number, priceRange: any) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+        fetchIntelligence(name, price, priceRange || {});
+      }
+      return next;
+    });
+  }, [fetchIntelligence]);
+
+  // ─── Auto-fetch Intelligence for Flagged Items ─────────────────────────────
+  useEffect(() => {
+    if (report && vehicleStr) {
+      const allItems = [...(report.green || []), ...(report.yellow || []), ...(report.red || [])];
+      allItems.forEach(item => {
+        const name = item.normalized_name === "Uncategorized Service" || item.normalized_name === "Unclassified Service" ? item.raw_text : item.normalized_name;
+        // Automatically fetch intelligence for all items to populate Lead Insight
+        fetchIntelligence(name, item.price, item.market_range || {});
+      });
+    }
+  }, [report, vehicleStr, fetchIntelligence]);
+
+  // ─── Chat ────────────────────────────────────────────────────────────────────
+  const handleSendMessage = async (forcedMessage?: string) => {
+    const msg = forcedMessage || input;
+    if (!msg.trim() || !caseId) return;
+    setMessages(prev => [...prev, { role: "user", content: msg }]);
+    if (!forcedMessage) setInput("");
+    setIsTyping(true);
+    try {
+      const resp = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: caseId, user_message: msg, report, followUps,
+          cleared_before: chatClearedAt, analysis_version: CURRENT_ANALYSIS_VERSION,
+        }),
+      });
+      const data = await resp.json();
+      if (data.reply) {
+        setMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
+        if (data.card_update) setChatCardState(data.card_update);
+        setChatExpanded(true);
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      }
+    } catch (err) { console.error(err); }
+    finally { setIsTyping(false); }
+  };
+
+  const startFreshChat = () => {
+    if (!caseId) return;
+    const clearedKey = `wrench_${caseId}_chat_cleared`;
+    const now = new Date().toISOString();
+    if (typeof window !== "undefined") localStorage.setItem(clearedKey, now);
+    setChatClearedAt(now);
+    setShowVersionNotice(false);
+    setMessages([{ role: "assistant", content: "Fresh start — what do you want to know?" }]);
+  };
+
+  // ─── Shop comparison ─────────────────────────────────────────────────────────
+  const findNearbyShops = async () => {
+    if (!caseData || shopLoading) return;
+    const location = caseData.shop_city || caseData.shop_address || "";
+    if (!location) {
+      setInput("Can you find me alternative shops nearby?");
+      setChatExpanded(true);
+      return;
+    }
+    setShopLoading(true);
+    try {
+      const res = await fetch("/api/shop-compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `${vehicleStr || "auto"} specialist repair`,
+          location, vehicle: vehicleStr,
+          currentShop: caseData.shop_name,
+          services: report?.yellow?.map((s: any) => s.normalized_name) || [],
+        }),
+      });
+      const data = await res.json();
+      if (data.comparison) setShopComparison(data.comparison);
+    } catch (err) { console.error(err); }
+    finally { setShopLoading(false); }
+  };
+
+  // ─── Loading state ───────────────────────────────────────────────────────────
+  if (!report) return (
+    <div className="min-h-screen bg-[#F8F9FF] flex flex-col items-center justify-center text-[#00236F] gap-3">
+      <Terminal className="w-10 h-10 animate-pulse" />
+      <p className="text-[10px] font-black tracking-[0.4em] uppercase">Loading analysis&hellip;</p>
+    </div>
+  );
+
+  // ─── Derived display values ──────────────────────────────────────────────────
+  const intel = report.shop_context?.intelligence;
+  // HARD RESET: Map ALL items (red, yellow, green) into the display array
+  const flaggedItems = [
+    ...(report.red || []).map((i: any) => ({ ...i, _tier: "red" })),
+    ...(report.yellow || []).map((i: any) => ({ ...i, _tier: "yellow" })),
+    ...(report.green || []).map((i: any) => ({ ...i, _tier: "green" })),
+  ];
+  const primaryItem = flaggedItems[0];
+  const primaryName = primaryItem
+    ? (primaryItem.normalized_name === "Uncategorized Service" ||
+       primaryItem.normalized_name === "Unclassified Service"
+        ? primaryItem.raw_text : primaryItem.normalized_name)
+    : null;
+
+  // Banner state — chat overrides report-derived state
+  const bannerState: BannerState = chatCardState
+    ? toBannerState(chatCardState.state, stats.red > 0)
+    : stats.red > 0 ? "reconsider" : stats.yellow > 0 ? "verify" : "proceed";
+  const B = BANNER_CFG[bannerState];
+
+
+
+  // Banner explanation — chat subheadline overrides static config
+  const bannerExplanation = chatCardState?.subheadline || B.confidenceLine;
+
+  // Banner icon
+  const BannerIcon = bannerState === "proceed" ? Check
+    : bannerState === "wait" ? Clock
+    : bannerState === "reconsider" ? AlertTriangle
+    : HelpCircle;
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-[#F8F9FF] font-sans selection:bg-[#00236F]/10">
+
+      {/* ── FIXED HEADER ── */}
+      <header className="fixed top-0 w-full z-50 bg-[#00236F] h-14 flex items-center shadow-md">
+        <div className="flex justify-between items-center px-4 w-full max-w-2xl mx-auto text-white">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push("/")}
+              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div onClick={() => { if (vehicleStr) setShowHealthProfile(true); else setVehicleEditMode(true); }} className="cursor-pointer group">
+              <p className="text-[9px] text-blue-200/80 uppercase tracking-widest font-black leading-tight mb-0.5">Auditing for</p>
+              <h1 className="text-[13px] font-black tracking-tight leading-tight flex items-center gap-1.5 group-hover:text-blue-100 transition-colors">
+                {vehicleStr || "Add Vehicle Context"} <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+              </h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-white/25">
+            <Terminal className="w-4 h-4" />
+          </div>
+        </div>
+      </header>
+
+      {/* ── VEHICLE HEALTH PROFILE MODAL ── */}
+      {showHealthProfile && watchOuts.length > 0 && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 flex items-end justify-center backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowHealthProfile(false); }}
+        >
+          <div className="bg-white w-full max-w-2xl rounded-t-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8">
+            <div className="bg-[#00236F] p-5 text-white flex justify-between items-start">
+               <div>
+                  <p className="text-[10px] font-black tracking-widest text-blue-200/80 uppercase mb-1">Vehicle Health Profile</p>
+                  <h2 className="text-xl font-black">{vehicleStr}</h2>
+               </div>
+               <div className="flex items-center gap-2">
+                 <button onClick={() => { setShowHealthProfile(false); setVehicleEditMode(true); }} className="bg-white/10 hover:bg-white/20 p-1.5 rounded-lg transition-colors" title="Edit Vehicle">
+                   <Pencil className="w-5 h-5 text-blue-100" />
+                 </button>
+                 <button onClick={() => setShowHealthProfile(false)} className="bg-white/10 hover:bg-white/20 p-1.5 rounded-lg transition-colors">
+                   <X className="w-5 h-5" />
+                 </button>
+               </div>
+            </div>
+            
+            <div className="p-5 max-h-[70vh] overflow-y-auto space-y-4">
+               {watchOutsLoading ? (
+                 <p className="text-sm font-bold text-slate-400 animate-pulse">Running diagnostics...</p>
+               ) : (
+                 watchOuts.map((w, idx) => (
+                   <div key={idx} className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+                     <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${w.severity.includes("Safety") ? "bg-red-100 text-red-700" : w.severity.includes("Insurance") ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600"}`}>
+                           {w.severity}
+                        </span>
+                     </div>
+                     <h4 className="text-sm font-black text-[#0D1C2E] mb-1">{w.title}</h4>
+                     <p className="text-[12px] text-slate-600 leading-relaxed font-medium">{w.description}</p>
+                   </div>
+                 ))
+               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── VEHICLE EDIT MODAL ── */}
+      {vehicleEditMode && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/50 flex items-end justify-center"
+          onClick={(e) => { if (e.target === e.currentTarget) setVehicleEditMode(false); }}
+        >
+          <div className="bg-white w-full max-w-2xl rounded-t-2xl p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-5">
+              <p className="text-sm font-black text-[#0D1C2E]">Your vehicle</p>
+              <button onClick={() => setVehicleEditMode(false)}>
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {(["year", "make", "model"] as const).map((field) => (
+                <input
+                  key={field}
+                  value={vehicleEdit[field]}
+                  onChange={(e) => setVehicleEdit((prev) => ({ ...prev, [field]: e.target.value }))}
+                  placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                  className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:border-[#00236F]/40 transition-colors"
+                />
+              ))}
+            </div>
+            <button
+              onClick={saveVehicle}
+              className="w-full bg-[#00236F] text-white rounded-xl py-3 text-sm font-black uppercase tracking-widest hover:bg-[#001855] transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="lg:flex lg:w-full lg:items-start lg:pt-14 min-h-screen">
+        {/* ── MAIN CONTENT (70% Width) ── */}
+        <main className="w-full pt-14 pb-32 px-4 space-y-3 lg:pt-8 lg:pb-16 lg:w-[70%] lg:shrink-0 lg:pr-8 xl:pl-12">
+        {!vehicleStr && !vehicleEditMode && (
+          <div className="mt-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col flex-wrap md:flex-row items-center md:items-start justify-between text-center md:text-left gap-3">
+             <div className="space-y-1">
+               <h3 className="text-[13px] font-black text-[#0D1C2E]">Before we go further, what car is this for?</h3>
+               <p className="text-[11px] text-slate-500">Vehicle context gives much higher accuracy on pricing and recommendations.</p>
+             </div>
+             <button
+               onClick={() => setVehicleEditMode(true)}
+               className="shrink-0 whitespace-nowrap bg-[#00236F] hover:bg-[#001855] text-white text-[11px] font-bold px-4 py-2 rounded-xl transition-colors"
+             >
+               Add vehicle
+             </button>
+          </div>
+        )}
+
+         {/* ── TOP-LEVEL "YOUR PLAN" SUMMARY ── */}
+         <div className="mt-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <h2 className="text-[16px] font-black text-[#0D1C2E] mb-4">Here's what I'd do:</h2>
+            {!report ? (
+              <div className="flex flex-col items-center justify-center py-6 gap-3">
+                 <div className="flex gap-1.5">
+                   <div className="w-2 h-2 rounded-full bg-[#00236F] animate-bounce [animation-delay:-0.3s]"></div>
+                   <div className="w-2 h-2 rounded-full bg-[#00236F] animate-bounce [animation-delay:-0.15s]"></div>
+                   <div className="w-2 h-2 rounded-full bg-[#00236F] animate-bounce"></div>
+                 </div>
+                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest animate-pulse">Deep Scan in Progress...</p>
+                 <p className="text-[10px] text-slate-400 text-center max-w-xs leading-relaxed">Parsing multi-page documents and running vehicle-specific pricing models. Please wait.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+              {resultModel && resultModel.services.filter(s => s.decision === "proceed").length > 0 && (
+                <div>
+                   <h3 className="text-[11px] font-black text-emerald-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                     <Check className="w-3.5 h-3.5" strokeWidth={3} /> Fix now
+                   </h3>
+                   <div className="space-y-2">
+                     {resultModel.services.filter(s => s.decision === "proceed").map((service: any) => {
+                       return (
+                         <a href={`#service-${service.name}`} key={service.name} className="flex justify-between items-start gap-3 bg-emerald-50/50 hover:bg-emerald-100/50 p-2.5 rounded-lg border border-emerald-100/50 transition-colors block">
+                           <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-bold text-[#0D1C2E] truncate">{cleanText(service.name)}</p>
+                              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{service.raw_item?.price_position === "above_market" ? "Priced reasonably for this shop" : "Fair market pricing"}</p>
+                           </div>
+                           <p className="text-[13px] font-bold text-[#0D1C2E] shrink-0">${service.price?.toFixed(2)}</p>
+                         </a>
+                       );
+                     })}
+                   </div>
+                </div>
+              )}
+              
+              {resultModel && resultModel.services.filter(s => s.decision === "verify").length > 0 && (
+                <div className={resultModel.services.filter(s => s.decision === "proceed").length > 0 ? "pt-4 border-t border-slate-100" : ""}>
+                   <h3 className="text-[11px] font-black text-amber-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                     <AlertTriangle className="w-3.5 h-3.5" strokeWidth={2.5} /> Ask first
+                   </h3>
+                   <div className="space-y-2">
+                     {resultModel.services.filter(s => s.decision === "verify").map((service: any) => {
+                       return (
+                         <a href={`#service-${service.name}`} key={service.name} className="flex justify-between items-start gap-3 bg-amber-50/30 hover:bg-amber-100/30 p-2.5 rounded-lg border border-amber-100/50 transition-colors block">
+                           <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-bold text-[#0D1C2E] truncate">{cleanText(service.name)}</p>
+                              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">Requires clarification</p>
+                           </div>
+                           <p className="text-[13px] font-bold text-[#0D1C2E] shrink-0">${service.price?.toFixed(2)}</p>
+                         </a>
+                       );
+                     })}
+                   </div>
+                </div>
+              )}
+
+              {resultModel && resultModel.services.filter(s => s.decision === "wait").length > 0 && (
+                <div className={(resultModel.services.filter(s => s.decision === "proceed").length > 0 || resultModel.services.filter(s => s.decision === "verify").length > 0) ? "pt-4 border-t border-slate-100" : ""}>
+                   <h3 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                     <Clock className="w-3.5 h-3.5" strokeWidth={2.5} /> Safe to wait
+                   </h3>
+                   <div className="space-y-2">
+                     {resultModel.services.filter(s => s.decision === "wait").map((service: any) => {
+                       return (
+                         <a href={`#service-${service.name}`} key={service.name} className="flex justify-between items-start gap-3 bg-blue-50/50 hover:bg-blue-100/50 p-2.5 rounded-lg border border-blue-100/50 transition-colors block">
+                           <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-bold text-[#0D1C2E] truncate">{cleanText(service.name)}</p>
+                              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">No immediate urgency detected</p>
+                           </div>
+                           <p className="text-[13px] font-bold text-[#0D1C2E] shrink-0">${service.price?.toFixed(2)}</p>
+                         </a>
+                       );
+                     })}
+                   </div>
+                </div>
+              )}
+               {resultModel && resultModel.services.length === 0 && (
+                 <div className="py-4 text-center">
+                   <p className="text-[12px] font-bold text-slate-400">No services were automatically flagged.</p>
+                 </div>
+               )}
+            </div>
+         )}
+         </div>
+
+        {/* ── GLOBAL SHOP CONTEXT ── */}
+        {intel && (
+          <details className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm mt-3 group [&_summary::-webkit-details-marker]:hidden">
+             <summary className="p-4 cursor-pointer select-none">
+                <div className="flex items-center justify-between mb-1 gap-2">
+                  <p className="text-[15px] font-black text-[#0D1C2E] truncate">{cleanText(intel.name)}</p>
+                  <div className="flex items-center gap-2 shrink-0">
+                     {intel.rating ? <span className="text-[13px] font-black text-[#0D1C2E] flex items-center gap-0.5"><Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> {intel.rating}</span> : null}
+                     {intel.shop_grade && (
+                       <span className={`text-[10px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider text-white ${intel.shop_grade === 'A' ? 'bg-emerald-600' : intel.shop_grade === 'B' ? 'bg-amber-500' : intel.shop_grade === 'C' ? 'bg-orange-500' : 'bg-slate-400'}`}>
+                         Grade {intel.shop_grade}
+                       </span>
+                     )}
+                     <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
+                  </div>
+                </div>
+                <p className="text-[12px] font-medium text-slate-500 capitalize flex items-center gap-1.5">
+                  {cleanText(intel.specialization || intel.shop_type?.replace("_", " "))} <span className="w-1 h-1 rounded-full bg-slate-300" /> {intel.review_count || 0} reviews
+                </p>
+             </summary>
+             <div className="px-4 pb-4 border-t border-slate-100/50 pt-3 space-y-3">
+                <div className="bg-[#F8F9FF] p-3.5 rounded-xl border border-blue-100/50">
+                  <p className="text-[9px] font-black text-[#00236F] uppercase tracking-widest mb-1.5 border-b border-blue-100/50 pb-1">Why this Grade?</p>
+                  <p className="text-[12px] text-[#0D1C2E] font-medium leading-relaxed">
+                    {intel.shop_grade === 'A' 
+                      ? "Grade A shops generally charge a 15-20% premium over average shops, but back their work with extended warranties, use OEM parts, and employ master technicians. The premium is often justified for complex repairs, but may be overkill for basic maintenance."
+                      : intel.shop_grade === 'B' 
+                      ? "Grade B shops offer a solid middle ground: good quality work at reasonable market rates. They are highly capable for standard repairs and maintenance, though they might not specialize in complex prestige European diagnostics."
+                      : "We recommend reviewing their recent public feedback carefully. Ensure you get specific warranty terms in writing before approving major work."}
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between border-b border-slate-200/50 pb-1">
+                    Public Reception
+                  </p>
+                  <p className="text-[12px] text-slate-600 font-medium leading-relaxed italic border-l-2 border-slate-300 pl-2">
+                    {cleanText(intel.interpretation || "Review data unavailable.")}
+                  </p>
+                </div>
+             </div>
+          </details>
+        )}
+
+        {/* ── EMPTY STATE FALLBACK ── */}
+        {report && resultModel && resultModel.services.length === 0 && (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center shadow-inner flex flex-col items-center gap-3 mt-6 relative overflow-hidden">
+             {openaiError && (
+               <div className="absolute top-0 w-full bg-red-100 text-red-700 py-1.5 text-[10px] font-black uppercase tracking-widest border-b border-red-200">
+                  OpenAI Pipeline Error: {openaiError}
+               </div>
+             )}
+             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 mb-2 mt-4">
+                 <AlertTriangle className={openaiError ? "w-5 h-5 text-red-500" : "w-5 h-5 text-slate-400"} />
+             </div>
+             <h3 className="text-[16px] font-black text-[#0D1C2E]">No Services Detected</h3>
+             <p className="text-[13px] text-slate-500 max-w-sm mx-auto leading-relaxed">
+               {openaiError 
+                 ? `The underlying vision model threw a ${openaiError} error during parsing. This is likely an API exhaustion or context failure.` 
+                 : "We couldn't automatically extract line items from this estimate. It might be illegible or in an unsupported format."}
+             </p>
+             <button onClick={() => window.location.href = "/"} className="mt-4 bg-[#00236F] text-white px-5 py-2 rounded-xl text-[12px] font-bold shadow-sm hover:bg-[#001855] transition-colors">
+               Upload a Different Document
+             </button>
+          </div>
+        )}
+
+        {/* ── FLAGGED SERVICE CARDS ── */}
+        {report && !resultModel ? (
+           <div className="space-y-3 mt-4">
+             <div className="h-60 bg-white border border-slate-200 rounded-2xl animate-pulse"></div>
+             <div className="h-60 bg-white border border-slate-200 rounded-2xl animate-pulse [animation-delay:0.2s]"></div>
+           </div>
+        ) : resultModel?.services.map((service: any, idx: number) => {
+          const item = service.raw_item;
+          const name = service.name;
+          const isRed = item?._tier === "red";
+          const safePrice = service.price;
+          const priceHigh = service.typicalRange.max;
+          const priceDelta = priceHigh > 0 ? Math.round(safePrice - priceHigh) : 0;
+          const aboveMarket = item?.price_position === "above_market";
+          const belowMarket = item?.price_position === "below_market";
+          const cardState: SystemState = chatCardState?.state || service.decision || "pause";
+          const C = CARD_CFG[cardState];
+          const cacheKey = `${name}::${vehicleStr}`;
+          const isExpanded = expandedCards.has(name);
+          const intelData = intelligence[cacheKey];
+
+          const currentStep = cardSteps[name] || 1;
+          const decision = cardDecisions[name];
+
+          // If skipped/held/denied, remove from the active roadmap visually
+          if (decision && decision !== "accept") return null;
+
+          return (
+            <article
+              id={`service-${name}`}
+              key={idx}
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md relative scroll-mt-24"
+              onClick={() => { if (activeService !== name) setActiveService(name); }}
+            >
+              {/* Stepper Header Logic can go here (or we just use the sections inside) */}
+              <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-1.5 w-full max-w-[200px]">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-colors ${currentStep >= 1 ? 'bg-[#00236F] text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>1</div>
+                  <div className={`flex-1 h-1 rounded-full transition-colors ${currentStep >= 2 ? 'bg-[#00236F]' : 'bg-slate-200'}`} />
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-colors ${currentStep >= 2 ? 'bg-[#00236F] text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>2</div>
+                  <div className={`flex-1 h-1 rounded-full transition-colors ${currentStep >= 3 ? 'bg-[#00236F]' : 'bg-slate-200'}`} />
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-colors ${currentStep >= 3 ? 'bg-[#00236F] text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>3</div>
+                </div>
+                {decision === 'accept' && <span className="shrink-0 text-[9px] bg-emerald-100 text-emerald-700 uppercase tracking-widest px-2 py-0.5 rounded font-black border border-emerald-200">Accepted</span>}
+              </div>
+
+              <div className="px-4 pt-4 pb-4 space-y-4">
+                {/* Step 1: Diagnose & Detail */}
+                <div className={`transition-opacity duration-300 ${currentStep === 1 ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                  <div className="mb-2 flex justify-between items-start gap-2">
+                    <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Step 1: Diagnose</p>
+                        <h4 className="text-[16px] font-black text-[#0D1C2E] leading-tight">{name}</h4>
+                    </div>
+                    {watchOuts.some((w: any) => name.toLowerCase().includes(w.title.split(' ')[0].toLowerCase())) && (
+                      <span className="shrink-0 bg-red-100 text-red-700 border border-red-200 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 shadow-sm mt-0.5">
+                        <AlertTriangle className="w-3 h-3" /> Known Issue
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="bg-[#F8F9FF] border border-blue-100/50 rounded-xl overflow-hidden px-3.5 py-3 shadow-inner">
+                      <span className="text-[9px] font-black text-[#00236F] uppercase tracking-widest mb-2 flex justify-between items-center">
+                        Lead Insight
+                      </span>
+                      {!intelData || intelData === "loading" ? (
+                        <div className="space-y-2.5 animate-pulse mt-2">
+                          <div className="h-3 bg-slate-200 rounded-full w-full" />
+                          <div className="h-3 bg-slate-200 rounded-full w-5/6" />
+                        </div>
+                      ) : intelData === "error" ? (
+                        <p className="text-[11px] text-slate-400">Couldn't load analysis. Try refreshing.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <p className="text-[12px] text-[#0D1C2E] font-semibold leading-relaxed border-l-2 border-[#00236F] pl-2">{cleanText(intelData.quick_take)}</p>
+                          {intelData.vehicle_specific_insight && (
+                             <p className="text-[11px] text-slate-500 italic mt-2 leading-relaxed">{cleanText(intelData.vehicle_specific_insight)}</p>
+                          )}
+                        </div>
+                      )}
+                  </div>
+
+                  {currentStep === 1 && (
+                    <button onClick={(e) => { e.stopPropagation(); setCardSteps(prev => ({...prev, [name]: 2})); updateWorkspaceState(name, { step: 2 }); }} className="mt-3 w-full bg-[#00236F] text-white text-[11px] uppercase tracking-widest font-black py-3 rounded-xl hover:bg-[#001855] transition-colors shadow-md active:scale-[0.99] flex justify-center items-center gap-2">
+                      Evaluate Price <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Step 2: Evaluate & Price */}
+                {currentStep >= 2 && (
+                  <div className={`transition-opacity duration-300 animate-in fade-in slide-in-from-bottom-2 ${currentStep === 2 ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Step 2: Price & Evaluate</p>
+                    <div className="bg-white border text-[13px] border-slate-100 rounded-xl p-3.5 space-y-1 shadow-sm">
+                      <div className="flex justify-between items-center mb-1 bg-slate-50 p-2 rounded-lg -mx-1.5 -mt-1.5">
+                        <span className="text-slate-600 font-bold text-[12px]">Quoted Price</span>
+                        <span className="font-black text-[#0D1C2E] text-[14px]">${safePrice.toFixed(2)}</span>
+                      </div>
+                      
+                      {priceHigh > 0 && item.market_range?.low > 0 && (
+                        <div className="relative h-2 bg-slate-100 rounded-full my-6 shadow-inner mx-1 mt-7 mb-4">
+                           {(() => {
+                              const low = item.market_range.low;
+                              const high = priceHigh;
+                              const range = high - low;
+                              const rangeBuffer = range || low * 0.2 || 100;
+                              let percent = ((safePrice - low) / rangeBuffer) * 100;
+                              if (percent < -15) percent = -15;
+                              if (percent > 115) percent = 115;
+                              return (
+                                <>
+                                  <div className="absolute top-0 bottom-0 left-0 bg-emerald-200 rounded-l-full" style={{ width: '50%' }} />
+                                  <div className="absolute top-0 bottom-0 right-0 bg-amber-200 rounded-r-full" style={{ width: '50%' }} />
+                                  <div className="absolute w-[3px] h-5 bg-[#00236F] rounded-full shadow-sm -top-1.5 z-10" style={{ left: `clamp(0%, ${percent}%, 100%)` }} />
+                                  <span className="absolute text-[8px] font-black text-slate-400 -bottom-4 left-0 text-center w-8 -ml-4">LOW<br/>${low}</span>
+                                  <span className="absolute text-[8px] font-black text-slate-400 -bottom-4 right-0 text-center w-8 -mr-4">HIGH<br/>${high}</span>
+                                </>
+                              )
+                           })()}
+                        </div>
+                      )}
+                      
+                      <div className="pt-2">
+                        {aboveMarket && priceDelta > 0 ? (
+                          <p className="text-[11px] font-medium text-slate-500 leading-snug">
+                            <span className="font-bold text-amber-600">+${priceDelta} higher</span> than the typical market rate for this job.
+                          </p>
+                        ) : belowMarket && priceDelta < 0 ? (
+                          <p className="text-[11px] font-medium text-slate-500 leading-snug">
+                            <span className="font-bold text-emerald-600">${Math.abs(priceDelta)} lower</span> than the typical market rate.
+                          </p>
+                        ) : (
+                          <p className="text-[11px] font-medium text-slate-500 leading-snug">Priced fairly within the expected market range.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {currentStep === 2 && (
+                       <div className="mt-3 bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest text-center mb-2">Decision Required</p>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            <button onClick={(e) => { e.stopPropagation(); setCardDecisions(prev => ({...prev, [name]: 'accept'})); setCardSteps(prev => ({...prev, [name]: 3})); updateWorkspaceState(name, { decision: 'accept', step: 3 }); }} className="bg-emerald-600 shadow border border-emerald-700 hover:bg-emerald-700 text-white text-[10px] font-black tracking-widest uppercase py-2.5 rounded transition-colors col-span-2">Accept</button>
+                            <button onClick={(e) => { e.stopPropagation(); setCardDecisions(prev => ({...prev, [name]: 'hold'})); updateWorkspaceState(name, { decision: 'hold' }); }} className="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 shadow-sm text-[10px] font-black tracking-widest uppercase py-2.5 rounded transition-colors col-span-1">Hold</button>
+                            <button onClick={(e) => { e.stopPropagation(); setCardDecisions(prev => ({...prev, [name]: 'deny'})); updateWorkspaceState(name, { decision: 'deny' }); }} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 shadow-sm text-[10px] font-black tracking-widest uppercase py-2.5 rounded transition-colors col-span-1">Deny</button>
+                          </div>
+                          <div className="mt-1.5 flex justify-center">
+                            <button onClick={(e) => { e.stopPropagation(); setCardDecisions(prev => ({...prev, [name]: 'skip'})); updateWorkspaceState(name, { decision: 'skip' }); }} className="text-[9px] text-slate-400 hover:text-slate-600 uppercase font-bold tracking-widest underline underline-offset-2">Skip & Hide</button>
+                          </div>
+                       </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3: Resolve & Act */}
+                {currentStep >= 3 && (
+                  <div className="transition-opacity duration-300 animate-in fade-in slide-in-from-bottom-2 space-y-3">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0">Step 3: Resolve & Act</p>
+                    
+                    {/* Negotiation Toolbox */}
+                    <div className="bg-slate-50 rounded-xl p-3 space-y-2 border border-slate-100">
+                        <div className="flex gap-2 items-center bg-white border border-slate-200 shadow-sm rounded-xl p-2.5">
+                           <span className="w-5 h-5 rounded bg-[#F8F9FF] border border-blue-100 flex items-center justify-center shrink-0">
+                               <Database className="w-2.5 h-2.5 text-[#00236F]" />
+                           </span>
+                           <p className="text-[10px] text-slate-600 font-medium leading-tight">
+                               {intel?.shop_grade === 'A' && aboveMarket ? "Premium pricing here is offset by Grade A warranty & reputation." : intel?.shop_grade ? `Grade ${intel.shop_grade} shop rating suggests average service standards.` : "Verify this price against another shop if possible." }
+                           </p>
+                        </div>
+                        
+                        {/* Copy Script */}
+                        <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-3 relative group transition-all">
+                           <div className="flex items-center justify-between mb-1.5">
+                             <p className="text-[9px] font-black text-[#00236F] uppercase tracking-widest flex gap-1 items-center"><Terminal className="w-3 h-3" /> Text your advisor</p>
+                             <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  let text = (isRed && aboveMarket) ? `Hey, I noticed this quote is $${priceDelta} above typical. Can you walk me through what makes this necessary?` : "Walk me through exactly what you found that makes this necessary.";
+                                  navigator.clipboard.writeText(text);
+                                  const btn = e.currentTarget;
+                                  const original = btn.innerHTML;
+                                  btn.innerHTML = "<span class='text-emerald-600 font-bold'>Copied</span>";
+                                  setTimeout(() => btn.innerHTML = original, 2000);
+                                }}
+                                className="text-[9px] font-bold text-slate-400 hover:text-[#00236F] uppercase transition-colors px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 shadow-sm"
+                              >
+                                 Copy
+                              </button>
+                           </div>
+                           <p className="text-[11px] text-[#0D1C2E] font-medium leading-snug italic border-l-2 border-emerald-400 pl-2">
+                              &ldquo;{ (isRed && aboveMarket) ? `Hey, I noticed this quote is $${priceDelta} above typical. Can you walk me through what makes this necessary?` : "Walk me through exactly what you found that makes this necessary." }&rdquo;
+                           </p>
+                        </div>
+                    </div>
+
+                    {/* V4 Real-World Alternatives (Denver Market) */}
+                    {aboveMarket && priceHigh > 0 && safePrice > (priceHigh * 1.20) && vehicleStr?.includes("S4") && (
+                       <div className="bg-orange-50 border border-orange-200 shadow-sm rounded-xl p-3.5 animate-in slide-in-from-bottom-2 fade-in">
+                         <p className="text-[10px] font-black text-orange-700 uppercase tracking-widest mb-1.5 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-orange-500" /> High Price Alert</p>
+                         <p className="text-[11px] text-slate-700 font-medium leading-relaxed mb-3">
+                           This quote is &gt;20% over standard market for the Denver area. Here are highly-rated Audi specialists you may want to consult for a second opinion:
+                         </p>
+                         <ul className="space-y-1.5 text-[11px] font-bold text-slate-700">
+                           <li className="flex items-center justify-between bg-white border border-orange-100/50 p-2.5 rounded-lg shadow-sm">
+                             <a href="https://bwperformance.com/repair/audi-repair-denver/" target="_blank" rel="noreferrer" className="underline hover:text-orange-700 text-[#00236F] truncate pr-2">Bluewater Performance</a>
+                             <span className="shrink-0 text-[8px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest uppercase border border-orange-200">Grade A</span>
+                           </li>
+                           <li className="flex items-center justify-between bg-white border border-orange-100/50 p-2.5 rounded-lg shadow-sm">
+                             <a href="https://theimportmechanics.com/vehicles/audi/" target="_blank" rel="noreferrer" className="underline hover:text-orange-700 text-[#00236F] truncate pr-2">The Import Mechanics</a>
+                             <span className="shrink-0 text-[8px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest uppercase border border-orange-200">Grade A</span>
+                           </li>
+                           <li className="flex items-center justify-between bg-white border border-orange-100/50 p-2.5 rounded-lg shadow-sm">
+                             <a href="https://www.fourringsrepair.com/near/denver-co/" target="_blank" rel="noreferrer" className="underline hover:text-orange-700 text-[#00236F] truncate pr-2">Paddock Imports</a>
+                             <span className="shrink-0 text-[8px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest uppercase border border-orange-200">Grade B+</span>
+                           </li>
+                         </ul>
+                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </article>
+          );
+        })}
+
+        {/* ── GREEN ITEMS ── */}
+        {report.green.length > 0 && (
+          <section>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+              Looks good ({report.green.length})
+            </p>
+            <div className="space-y-1.5">
+              {report.green.map((item: any, idx: number) => {
+                const name =
+                  item.normalized_name === "Uncategorized Service" ||
+                  item.normalized_name === "Unclassified Service"
+                    ? item.raw_text : item.normalized_name;
+                return (
+                  <div
+                    key={idx}
+                    className="bg-white border border-slate-200 border-l-4 border-l-emerald-400 rounded-xl px-3 py-2 flex items-center justify-between"
+                  >
+                    <span className="text-[13px] font-semibold text-[#0D1C2E]">{name}</span>
+                    <span className="font-black text-[#0D1C2E] tabular-nums text-[13px]">${item.price.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ── FINAL PLAYBOOK & SAVINGS SUMMARY ── */}
+        {savingsData && savingsData.actionCount > 0 && (
+          <section className="bg-gradient-to-br from-[#00236F] to-[#001540] rounded-2xl border border-[#00236F]/20 shadow-xl overflow-hidden mt-6 text-white pb-1 animate-in fade-in slide-in-from-bottom-4">
+            <div className="px-5 py-4 border-b border-white/10">
+              <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest flex items-center gap-2">
+                <Check className="w-3.5 h-3.5" /> Workspace Complete
+              </p>
+              <h2 className="text-xl font-black mt-1">Your Final Playbook</h2>
+            </div>
+            
+            <div className="px-5 py-5 space-y-5">
+               {/* Savings Block */}
+               <div className="grid grid-cols-3 gap-2">
+                 <div className="bg-white/5 rounded-xl p-2.5 border border-white/10 text-center">
+                   <p className="text-[9px] text-blue-200 uppercase font-black tracking-wider mb-1 line-clamp-1">Approved</p>
+                   <p className="text-lg font-black text-white leading-none">${savingsData.approvedTotal.toFixed(2)}</p>
+                 </div>
+                 <div className="bg-emerald-500/10 rounded-xl p-2.5 border border-emerald-500/30 text-center relative overflow-hidden">
+                   <div className="absolute inset-0 bg-emerald-400/10 blur-xl"></div>
+                   <p className="text-[9px] text-emerald-300 uppercase font-black tracking-wider mb-1 relative line-clamp-1">Est. Savings</p>
+                   <p className="text-lg font-black text-emerald-400 leading-none relative">${savingsData.estimatedSavings.toFixed(2)}</p>
+                 </div>
+                 <div className="bg-amber-500/10 rounded-xl p-2.5 border border-amber-500/30 text-center">
+                   <p className="text-[9px] text-amber-300 uppercase font-black tracking-wider mb-1 line-clamp-1">Risk Avoided</p>
+                   <p className="text-lg font-black text-amber-400 leading-none">${(savingsData.deferredMaintenance + savingsData.deniedSavings).toFixed(2)}</p>
+                 </div>
+               </div>
+
+               {/* Action Steps */}
+               <div className="space-y-2.5">
+                 <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-white/10 pb-1">Next Steps</h3>
+                 
+                 <div className="flex gap-3 items-start relative before:absolute before:left-3.5 before:top-8 before:bottom-[-10px] before:w-[2px] before:bg-white/10">
+                   <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-white font-black text-[11px] shrink-0 z-10 shadow-lg border-2 border-[#001540]">1</div>
+                   <div className="pt-1.5 pb-2">
+                     <p className="text-[13px] font-bold text-white leading-tight">Send your game plan</p>
+                     
+                     {savingsData.masterScripts.length > 0 ? (
+                        <div className="mt-2 bg-white/5 border border-white/10 rounded-xl p-3 relative group">
+                           <div className="flex items-center justify-between mb-1.5 border-b border-white/10 pb-1.5">
+                             <p className="text-[9px] font-black text-blue-300 uppercase tracking-widest flex gap-1 items-center">Your Master Script</p>
+                             <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const text = savingsData.masterScripts.map(s => s.text).join("\n\n");
+                                  navigator.clipboard.writeText(text);
+                                  const btn = e.currentTarget;
+                                  const orig = btn.innerHTML;
+                                  btn.innerHTML = "<span class='text-emerald-400'>Copied</span>";
+                                  setTimeout(() => btn.innerHTML = orig, 2000);
+                                }}
+                                className="text-[9px] font-bold text-white uppercase bg-white/10 hover:bg-white/20 transition-colors px-1.5 py-0.5 rounded shadow-sm"
+                              >
+                                 Copy All
+                              </button>
+                           </div>
+                           <div className="space-y-2">
+                              {savingsData.masterScripts.map((script: any, idx: number) => (
+                                 <p key={idx} className="text-[11px] text-blue-100 italic border-l-2 border-emerald-400/50 pl-2">"{script.text}"</p>
+                              ))}
+                           </div>
+                        </div>
+                     ) : (
+                        <p className="text-[11px] text-blue-200 mt-1 leading-relaxed">
+                          Use the exact scripts provided in <strong>Step 3: Resolve & Act</strong> for the items you want to deny or hold. Copy/paste them directly to your service advisor. 
+                        </p>
+                     )}
+                   </div>
+                 </div>
+
+                 <div className="flex gap-3 items-start relative">
+                   <div className="w-7 h-7 bg-slate-700 rounded-full flex items-center justify-center text-slate-300 font-black text-[11px] shrink-0 z-10 shadow-lg border-2 border-[#001540]">2</div>
+                   <div className="pt-1.5 pb-2 w-full">
+                     <p className="text-[13px] font-bold text-white leading-tight">Approve the core</p>
+                     <p className="text-[11px] text-blue-200 mt-0.5 leading-relaxed pb-3">
+                       Once they confirm they've dropped the pending items, approve the updated ${savingsData.approvedTotal.toFixed(2)} estimate.
+                     </p>
+                     <button onClick={() => {
+                         const summaryText = `I just reviewed my auto repair quote using WrenchCheck. Through their AI, we identified $${savingsData.estimatedSavings.toFixed(2)} in savings and verified $${savingsData.approvedTotal.toFixed(2)} in necessary repairs. Check out my final diagnosis here: https://wrenchcheck.com/audit/${caseId}`;
+                         if (navigator.share) {
+                             navigator.share({ title: 'WrenchCheck Audit', text: summaryText, url: `https://wrenchcheck.com/audit/${caseId}` });
+                         } else {
+                             navigator.clipboard.writeText(summaryText);
+                             alert("Share link copied to clipboard!");
+                         }
+                     }} className="w-full bg-white text-[#001540] text-[11px] uppercase tracking-widest font-black py-3 rounded-xl hover:bg-slate-100 transition-colors shadow-md active:scale-[0.99] flex justify-center items-center gap-2">
+                       Share Summary Link
+                     </button>
+                   </div>
+                 </div>
+
+               </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── SHOP COMPARISON — secondary (Rendered conditionally when requested) ── */}
+        {shopComparison && (
+          <div className="pt-1">
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Alternative shops nearby</p>
+                <button onClick={() => setShopComparison(null)} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">Clear</button>
+              </div>
+              {shopComparison.shops.slice(0, 4).map((shop: any) => {
+                const meta = shopComparison.ranked.find((r: any) => r.place_id === shop.place_id);
+                return (
+                  <div key={shop.place_id} className="px-4 py-3 border-b border-slate-50 last:border-b-0 space-y-1">
+                    <div className="flex justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {meta?.best && <span className="text-[9px] font-black bg-[#00236F] text-white px-1.5 py-0.5 rounded uppercase shrink-0">Best pick</span>}
+                        <p className="text-[13px] font-bold text-[#0D1C2E] truncate">{shop.name}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        {shop.rating && <p className="text-[12px] font-black">&#9733; {shop.rating}</p>}
+                        {shop.review_count && <p className="text-[10px] text-slate-400">{shop.review_count} reviews</p>}
+                      </div>
+                    </div>
+                    {meta?.why && <p className="text-[11px] text-slate-500 leading-snug">{meta.why}</p>}
+                  </div>
+                );
+              })}
+              {shopComparison.decision_summary && (
+                <div className="px-4 py-3 bg-[#00236F]/5 border-t border-[#00236F]/10">
+                  <p className="text-[11px] text-[#00236F] font-semibold leading-relaxed">{shopComparison.decision_summary}</p>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+      </main>
+
+      {/* ── FIXED BOTTOM / SIDEBAR CHAT ── */}
+      <div className={`
+        z-50 bg-white transition-all duration-300 flex flex-col overflow-hidden 
+        lg:w-[30%] lg:shrink-0 lg:flex lg:border-l lg:border-slate-200 lg:z-10 lg:sticky lg:top-[56px] lg:h-[calc(100vh-56px)] lg:!bottom-auto lg:!left-auto lg:!rounded-none lg:shadow-none lg:!translate-y-0 lg:bg-slate-50 lg:-mt-14
+        ${chatExpanded 
+           ? "fixed left-0 right-0 bottom-0 h-[60vh] rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.2)] border-t border-slate-200" 
+           : "fixed bottom-6 right-6 h-14 w-auto rounded-full shadow-2xl cursor-pointer hover:scale-105 hover:shadow-xl lg:!h-[calc(100vh-56px)] lg:!overflow-visible"}
+      `}
+      onClick={(e) => {
+        if (!chatExpanded) setChatExpanded(true);
+      }}>
+          <div className="shrink-0">
+            <div className="flex flex-col h-full bg-slate-50">
+              <div className={`
+                flex items-center justify-between transition-colors lg:!px-6 lg:!py-4 lg:!bg-slate-50 lg:!rounded-none lg:!h-auto lg:!text-[#0D1C2E] lg:border-b lg:border-slate-200
+                ${!chatExpanded ? "px-5 py-3 h-14 bg-white text-[#00236F] rounded-full" : "px-4 py-2 bg-[#00236F] rounded-t-2xl h-[60px] text-white"}
+              `}>
+                <div className="flex items-center gap-2 flex-1">
+                  <Bot className={`w-5 h-5 lg:!text-[#00236F] ${!chatExpanded ? "text-[#00236F]" : "text-[#22C55E]"}`} />
+                  <span className={`text-xs font-bold hidden sm:inline lg:!text-[#0D1C2E] lg:!block lg:text-[14px] ${!chatExpanded ? "" : "text-white"}`}>WrenchCheck Copilot</span>
+                  
+                  {savingsData && savingsData.estimatedSavings > 0 ? (
+                    <span className={`border text-[11px] font-black px-2.5 py-1 rounded-full shadow-sm ml-1 animate-pulse lg:!bg-emerald-500/20 lg:!text-emerald-400 lg:!border-emerald-500/30
+                      ${!chatExpanded ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"}
+                    `}>
+                      ${savingsData.estimatedSavings.toFixed(0)} Saved
+                    </span>
+                  ) : (
+                    <>
+                      <span className={`w-1.5 h-1.5 rounded-full lg:!bg-emerald-400 ${!chatExpanded ? "bg-emerald-500" : "bg-emerald-400"}`} />
+                      <span className={`text-[10px] hidden sm:inline lg:!text-white/50 ${!chatExpanded ? "text-slate-400" : "text-white/50"}`}>Online</span>
+                    </>
+                  )}
+                </div>
+                
+                <div className={`flex items-center gap-3 lg:!flex ${!chatExpanded ? "hidden" : ""}`}>
+                  <button 
+                     onClick={(e) => { e.stopPropagation(); setChatExpanded(false); }}
+                     className="p-1.5 hover:bg-black/10 rounded-lg transition-colors lg:hidden"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                  {showVersionNotice && (
+                    <button
+                      onClick={startFreshChat}
+                      className="text-[10px] font-bold text-amber-500 hover:text-amber-600 transition-colors lg:!text-amber-600"
+                    >
+                      Context outdated &mdash; refresh
+                    </button>
+                  )}
+                  <button onClick={startFreshChat} className="text-[10px] text-white/50 hover:text-white/80 transition-colors shrink-0 lg:!text-slate-400 lg:hover:!text-slate-600">
+                    Start fresh
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setChatExpanded(false); }}
+                    className="w-8 h-8 flex lg:hidden items-center justify-center rounded-lg hover:bg-white/10 transition-colors text-white/80"
+                  >
+                    <ChevronDown className="w-4 h-4 transition-transform" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 bg-[#FDFDFF] scroll-smooth lg:min-h-0 min-h-[40vh]">
+            {messages.length <= 1 && (
+              <div className="flex flex-wrap gap-1.5 mb-1">
+                {["Do I really need this?", "Is this overpriced?", "Should I get a second opinion?"].map((chip) => (
+                  <button
+                    key={chip}
+                    onClick={() => handleSendMessage(chip)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
+                  m.role === "user"
+                    ? "bg-[#00236F] text-white rounded-br-sm shadow-sm"
+                    : "bg-white text-slate-700 border border-slate-200 rounded-bl-sm shadow-sm"
+                }`}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-slate-100 rounded-xl px-3 py-2 flex gap-1 shadow-sm">
+                  <span className="w-1.5 h-1.5 bg-[#00236F]/40 rounded-full animate-bounce" />
+                  <span className="w-1.5 h-1.5 bg-[#00236F]/60 rounded-full animate-bounce [animation-delay:0.1s]" />
+                  <span className="w-1.5 h-1.5 bg-[#00236F]/40 rounded-full animate-bounce [animation-delay:0.2s]" />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+        <div className="shrink-0 bg-white border-t border-slate-100 pb-safe">
+          {activeService && (
+             <div className="px-4 py-1.5 bg-slate-50 border-b border-slate-100">
+               <p className="text-[10px] items-center font-bold text-[#00236F] uppercase tracking-widest flex gap-1 animate-in fade-in slide-in-from-top-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse block" /> Talking about: {cleanText(activeService)}</p>
+             </div>
+          )}
+          <div className="flex flex-col px-4 py-3">
+             <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setChatExpanded((e) => !e)}
+                  className="lg:hidden shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 transition-colors"
+                  title={chatExpanded ? "Collapse chat" : "Ask a question"}
+                >
+                  <Bot className="w-4 h-4 text-[#0D2B52]" />
+                </button>
+                <div className="hidden lg:flex shrink-0 w-8 h-8 items-center justify-center rounded-full bg-slate-100">
+                  <Bot className="w-4 h-4 text-[#0D2B52]" />
+                </div>
+                <input
+                  ref={chatInputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
+                  onFocus={() => setChatExpanded(true)}
+                  placeholder="Ask anything or provide context..."
+                  className="flex-1 text-sm bg-slate-50 border border-slate-200 rounded-full px-4 py-2 focus:outline-none focus:border-[#0D2B52]/40 transition-all text-slate-700 placeholder:text-slate-400"
+                />
+                <button
+                  onClick={() => handleSendMessage()}
+                  disabled={!input.trim() || isTyping}
+                  className="shrink-0 w-9 h-9 bg-[#0D2B52] rounded-full flex items-center justify-center disabled:opacity-30 transition-all hover:bg-[#0D2B52]/90 active:scale-95"
+                >
+                  <ArrowRight className="w-4 h-4 text-white" />
+                </button>
+             </div>
+          </div>
+        </div>
+      </div>
+    
+    {process.env.NODE_ENV === 'development' && (
+      <div className="fixed bottom-4 left-4 z-[9999] bg-black text-green-400 p-4 rounded-xl text-[11px] font-mono shadow-2xl max-w-xs border border-green-900 border-opacity-50">
+         <h4 className="font-bold text-white mb-2 uppercase border-b border-green-800 pb-1">Ingestion Debug Panel</h4>
+         <div className="space-y-1">
+            <p>Raw text present: {debugRawTextPresent === null ? '...' : debugRawTextPresent ? 'YES' : 'NO'}</p>
+            <p className={openaiError ? "text-red-400 font-bold" : ""}>OpenAI Status: {openaiError || "200 OK"}</p>
+            <p>Services Count: {resultModel?.services?.length || 0}</p>
+            <p>Detect Vehicle: {resultModel?.vehicle || "None"}</p>
+            <p>Detect Shop: {resultModel?.shop?.name || "None"}</p>
+            <div className="mt-2 text-green-300">
+               {(resultModel?.services || []).map((s:any, i:number) => (
+                  <p key={i}>[{i}] {s.name}</p>
+               ))}
+            </div>
+         </div>
+         <button 
+           onClick={() => setUseDebugMode(!useDebugMode)} 
+           className="mt-3 bg-white text-black font-bold uppercase w-full py-1.5 hover:bg-green-100 transition-colors"
+         >
+           {useDebugMode ? "Disable Fallback" : "Force Test Fallback"}
+         </button>
+      </div>
+    )}
+
+
+
+    {/* ── CLOSE GRID WRAPPER ── */}
+    </div>
+    {/* ── CLOSE ROOT WRAPPER ── */}
+    </div>
+  );
+}
