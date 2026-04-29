@@ -24,7 +24,8 @@ import {
 
 export const maxDuration = 300;
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy init — avoids build-time crash when env var missing
+const getResend = () => new Resend(process.env.RESEND_API_KEY || 're_placeholder');
 const ALERT_EMAIL = process.env.ALERT_EMAIL || "onboarding@resend.dev";
 const GEM_THRESHOLD = 72; // Shadow score to qualify as a Gem lead
 const MAX_TRANSIT_FOR_ALERT = 3; // Mid-Haul or closer triggers email
@@ -262,7 +263,7 @@ export async function GET(req: Request) {
               ? `<tr><td style="padding:6px; color:#666;">Criteria Match</td><td style="padding:6px; font-weight:700; color:#15803D;">${criteriaSignals.join(' · ')}</td></tr>`
               : '';
 
-            await resend.emails.send({
+            await getResend().emails.send({
               from: "WrenchCheck Scout <onboarding@resend.dev>",
               to: ALERT_EMAIL,
               subject: `💎 GEM LEAD: ${carName} — Score ${ws.score} | ${transit.label}`,
