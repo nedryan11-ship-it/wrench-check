@@ -82,13 +82,16 @@ Example format:
 ]`;
 
   try {
+    const scheduleAbort = new AbortController();
+    const scheduleTimer = setTimeout(() => scheduleAbort.abort(), 35000); // 35s — full schedule needs more time than a quick value call
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 2000,
-      temperature: 0.1, // low temperature for deterministic service names
+      max_tokens: 2500,
+      temperature: 0.1,
       response_format: { type: "json_object" },
-    });
+    }, { signal: scheduleAbort.signal });
+    clearTimeout(scheduleTimer);
 
     const raw = completion.choices[0].message.content ?? "{}";
 

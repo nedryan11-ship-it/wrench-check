@@ -12,7 +12,7 @@
 import type { NormalizedServiceEvent, ServiceHistoryEvent } from "./types";
 import {
   mapToCanonicalService,
-  mapToCanonicalServiceWithFallback,
+  batchMapToCanonicalWithFallback,
 } from "@/lib/services/mapToCanonicalService";
 import type { CanonicalService } from "@/lib/services/canonicalServices";
 
@@ -26,68 +26,31 @@ export async function normalizeServiceHistory(
 ): Promise<NormalizedServiceEvent[]> {
   if (events.length === 0) return [];
 
-  const normalized: NormalizedServiceEvent[] = [];
-
-  // Run all events through deterministic mapper first (synchronous, fast)
-  const deterministicResults = events.map((event) => ({
-    event,
-    result: mapToCanonicalService({
-      rawText: event.rawDescription,
-      sourceType: "history",
-    }),
-  }));
-
   if (DEV) {
-    const unknownCount = deterministicResults.filter(
-      r => r.result.canonicalService === "unknown_service"
-    ).length;
-    console.log(
-      `[normalize] ${events.length} events → ${events.length - unknownCount} deterministic, ${unknownCount} fallback`
-    );
+    console.log(`[normalize] processing ${events.length} events...`);
   }
 
-  // Identify events needing LLM fallback
-  const needsFallback = deterministicResults.filter(
-    r => r.result.canonicalService === "unknown_service"
+  // Map everything in one batch (Step 1 deterministic, Step 2 batched LLM)
+  const results = await batchMapToCanonicalWithFallback(
+    events.map(e => e.rawDescription),
+    "history"
   );
 
-  // Fetch LLM fallback results in parallel (only for unknowns)
-  const llmResults = new Map<string, Awaited<ReturnType<typeof mapToCanonicalServiceWithFallback>>>();
-  if (USE_LLM_FALLBACK && needsFallback.length > 0) {
-    const llmPromises = needsFallback.map(async ({ event }) => {
-      const result = await mapToCanonicalServiceWithFallback({
-        rawText: event.rawDescription,
-        sourceType: "history",
-      });
-      llmResults.set(event.id, result);
-    });
-    await Promise.allSettled(llmPromises);
-  }
-
   // Build final normalized events
-  for (const { event, result } of deterministicResults) {
-    let finalResult = result;
-
-    // Use LLM result if available and it improved on unknown
-    if (result.canonicalService === "unknown_service") {
-      const llm = llmResults.get(event.id);
-      if (llm && llm.canonicalService !== "unknown_service") {
-        finalResult = llm;
-      }
-    }
-
-    normalized.push({
+  const normalized = events.map((event, i) => {
+    const res = results[i];
+    return {
       id: crypto.randomUUID(),
-      canonicalService: finalResult.canonicalService as CanonicalService,
-      confidence: finalResult.confidence,
+      canonicalService: res.canonicalService as CanonicalService,
+      confidence: res.confidence,
       rawDescription: event.rawDescription,
       date: event.date ?? null,
       mileage: event.mileage ?? null,
-      mappedFrom: finalResult.matchedAlias ?? event.rawDescription,
+      mappedFrom: res.matchedAlias ?? event.rawDescription,
       is_ppi: event.is_ppi,
       ppi_is_good: event.ppi_is_good,
-    });
-  }
+    };
+  });
 
   if (DEV) {
     const highCount = normalized.filter(n => n.confidence === "high").length;

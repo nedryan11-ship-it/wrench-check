@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import {
   ChevronLeft, ChevronDown, Bot, Check, Clock, AlertTriangle,
-  Pencil, X, Copy, Star, Send, ShieldCheck, Info, Zap, MessageSquare
+  Pencil, X, Copy, Star, Send, ShieldCheck, Info, Zap, MessageSquare, Upload
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { generateCaseReport } from "@/lib/logic";
@@ -177,6 +177,7 @@ export default function AuditPage() {
   const [isWatchOutsOpen, setIsWatchOutsOpen] = useState(false);
   const [watchOuts, setWatchOuts] = useState<any>(null);
   const [isFetchingWatchOuts, setIsFetchingWatchOuts] = useState(false);
+  const [isReuploading, setIsReuploading] = useState(false);
 
   // Top-of-page AI summary (from boot structured response)
   const [topSummary, setTopSummary] = useState<string | null>(null);
@@ -593,6 +594,70 @@ export default function AuditPage() {
       console.error("Paste failed", e);
     } finally {
       setIsParsingPaste(false);
+    }
+  };
+
+  // ── Re-upload handler for the empty-state drag/drop zone ──────────────────
+  const handleReupload = async (file: File) => {
+    const validExts = ["pdf", "png", "jpg", "jpeg", "webp", "heic", "heif"];
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!validExts.includes(ext)) { alert("Please upload a PDF, PNG, JPG, WEBP, or HEIC file."); return; }
+    if (file.size > 20 * 1024 * 1024) { alert("File must be under 20 MB."); return; }
+
+    (document as any).__wc_uploading = true;
+    setIsReuploading(true);
+    // Force a re-render by toggling a harmless state — use services setter
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      // Forward vehicle hint so the pipeline knows the make/model context
+      const vStr = [caseData?.vehicle_year, caseData?.vehicle_make, caseData?.vehicle_model].filter(Boolean).join(" ");
+      if (vStr) {
+        fd.append("vehicleOverride", JSON.stringify({ year: caseData?.vehicle_year, make: caseData?.vehicle_make, model: caseData?.vehicle_model }));
+      }
+
+      const res = await fetch("/api/maintenance-audit", { method: "POST", body: fd });
+
+      if (res.headers.get("content-type")?.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        let finalPayload: any = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split("\n\n");
+          buf = parts.pop() ?? "";
+          for (const part of parts) {
+            if (!part.startsWith("data: ")) continue;
+            try {
+              const evt = JSON.parse(part.slice(6));
+              if (evt.type === "complete") finalPayload = evt;
+              if (evt.type === "error") throw new Error(evt.error ?? "Audit failed.");
+            } catch (parseErr) { /* skip malformed */ }
+          }
+        }
+
+        if (!finalPayload?.success) {
+          alert(finalPayload?.error ?? "Could not extract data from this file. Try pasting the text instead.");
+          return;
+        }
+        sessionStorage.setItem("maintenance_audit_result", JSON.stringify(finalPayload.result));
+        const caseId = "maint_" + Date.now();
+        window.location.href = `/audit/${caseId}/maintenance`;
+      } else {
+        const data = await res.json();
+        if (!data.success) { alert(data.error ?? "Upload failed. Please try again."); return; }
+        sessionStorage.setItem("maintenance_audit_result", JSON.stringify(data.result));
+        const caseId = "maint_" + Date.now();
+        window.location.href = `/audit/${caseId}/maintenance`;
+      }
+    } catch (err: any) {
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setIsReuploading(false);
     }
   };
 
@@ -1391,24 +1456,59 @@ export default function AuditPage() {
 
           {/* Service cards */}
           {services.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-10 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
-              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
-                <Zap className="w-8 h-8 text-[#00236F]" />
-              </div>
-              <h3 className="text-lg font-black text-[#0D1C2E] mb-2">Ready to audit</h3>
-              <p className="text-sm text-slate-500 font-medium mb-6 max-w-xs">
-                We couldn't read an estimate automatically. Add services manually or paste your estimate text.
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setIsManualEntryOpen(true)}
-                  className="flex items-center gap-2 px-4 py-3 bg-[#00236F] text-white rounded-xl font-black text-[12px]">
-                  <Pencil className="w-4 h-4" /> Add Service
-                </button>
-                <button onClick={() => setIsPasteOpen(true)}
-                  className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 text-[#0D1C2E] rounded-xl font-black text-[12px]">
-                  <Copy className="w-4 h-4" /> Paste Text
-                </button>
-              </div>
+            <div
+              className="flex flex-col items-center justify-center p-10 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200 transition-all duration-200"
+              onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = "#00236F"; e.currentTarget.style.background = "#EFF6FF"; }}
+              onDragLeave={(e) => { e.currentTarget.style.borderColor = ""; e.currentTarget.style.background = ""; }}
+              onDrop={async (e) => {
+                e.preventDefault();
+                e.currentTarget.style.borderColor = "";
+                e.currentTarget.style.background = "";
+                const file = e.dataTransfer.files[0];
+                if (file) await handleReupload(file);
+              }}
+            >
+              {isReuploading ? (
+                <div className="flex flex-col items-center gap-4 py-4">
+                  <div className="w-12 h-12 rounded-full border-4 border-[#00236F]/20 border-t-[#00236F] animate-spin" />
+                  <div className="text-sm font-black text-[#0D1C2E]">Analyzing document...</div>
+                  <div className="text-xs text-slate-400">This usually takes 30–60 seconds</div>
+                </div>
+              ) : (
+                <>
+                  <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                    <Upload className="w-8 h-8 text-[#00236F]" />
+                  </div>
+                  <h3 className="text-lg font-black text-[#0D1C2E] mb-1">Upload Your Document</h3>
+                  <p className="text-sm text-slate-500 font-medium mb-1 max-w-xs">
+                    Drag &amp; drop a file here, or click Choose File below
+                  </p>
+                  <p className="text-xs text-slate-400 mb-6">PDF · PNG · JPG · WEBP · max 20 MB</p>
+                  <div className="flex flex-wrap gap-3 justify-center">
+                    <label className="flex items-center gap-2 px-5 py-3 bg-[#00236F] text-white rounded-xl font-black text-[13px] cursor-pointer hover:bg-[#001540] transition-colors shadow-sm">
+                      <Upload className="w-4 h-4" />
+                      Choose File
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) await handleReupload(file);
+                        }}
+                      />
+                    </label>
+                    <button onClick={() => setIsManualEntryOpen(true)}
+                      className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 text-[#0D1C2E] rounded-xl font-black text-[12px] hover:bg-slate-50 transition-colors">
+                      <Pencil className="w-4 h-4" /> Add Manually
+                    </button>
+                    <button onClick={() => setIsPasteOpen(true)}
+                      className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 text-[#0D1C2E] rounded-xl font-black text-[12px] hover:bg-slate-50 transition-colors">
+                      <Copy className="w-4 h-4" /> Paste Text
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-3">

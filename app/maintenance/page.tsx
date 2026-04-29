@@ -21,15 +21,10 @@ interface ManualEntry {
 }
 
 const PROCESSING_STEPS = [
-  "Reading your PDF…",
-  "Extracting service history…",
-  "Normalizing service descriptions…",
-  "Fetching OEM maintenance schedule…",
-  "Calculating maintenance debt…",
-  "Comparing to OEM requirements…",
-  "Building your report…",
-  "Still working — large PDFs take a moment…",
-  "Almost there…",
+  "Reading PDF...",
+  "Extracting service history...",
+  "Matching maintenance records...",
+  "Building decision summary...",
 ];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -41,6 +36,12 @@ export default function MaintenanceAuditPage() {
   const [stage, setStage] = useState<AuditStage>("input");
   const [processingStep, setProcessingStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
+  const [streamProgress, setStreamProgress] = useState<{
+    pct: number;
+    message: string;
+    vehicle?: { year: number; make: string; model: string; currentMileage?: number };
+    earlyVerdict?: string;
+  }>({ pct: 0, message: "Starting..." });
 
   // Paste mode
   const [pastedText, setPastedText] = useState("");
@@ -58,6 +59,9 @@ export default function MaintenanceAuditPage() {
     { id: "entry-0", description: "", date: "", mileage: "" },
   ]);
 
+  // Asking price (applies to all modes)
+  const [askingPriceInput, setAskingPriceInput] = useState("");
+
   useEffect(() => {
     if (stage !== "processing") return;
     setProcessingStep(0);
@@ -73,6 +77,7 @@ export default function MaintenanceAuditPage() {
   const submit = useCallback(async () => {
     setErrorMsg("");
     setStage("processing");
+    setStreamProgress({ pct: 0, message: "Starting..." });
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 110_000); // 110s client timeout
@@ -108,6 +113,60 @@ export default function MaintenanceAuditPage() {
           body: formData,
           signal: controller.signal,
         });
+
+        // ── Streaming SSE response for file uploads ──────────────────────────────
+        if (res.headers.get("content-type")?.includes("text/event-stream") && res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          let finalPayload: any = null;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const parts = buf.split("\n\n");
+            buf = parts.pop() ?? "";
+            for (const part of parts) {
+              if (!part.startsWith("data: ")) continue;
+              let evt: any;
+              try { evt = JSON.parse(part.slice(6)); } catch { continue; }
+
+              if (evt.type === "progress") {
+                setStreamProgress(p => ({ ...p, pct: evt.pct ?? p.pct, message: evt.message ?? p.message }));
+              } else if (evt.type === "vehicle") {
+                setStreamProgress(p => ({ ...p, pct: evt.pct ?? p.pct, vehicle: evt.vehicle, message: `Found: ${evt.vehicle.year} ${evt.vehicle.make} ${evt.vehicle.model}` }));
+              } else if (evt.type === "verdict") {
+                setStreamProgress(p => ({
+                  ...p, pct: evt.pct ?? p.pct,
+                  message: "Finalizing analysis...",
+                  earlyVerdict: evt.verdict,
+                }));
+              } else if (evt.type === "complete") {
+                finalPayload = evt;
+              } else if (evt.type === "error") {
+                throw new Error(evt.error ?? "Audit failed.");
+              }
+            }
+          }
+
+          clearTimeout(timeoutId);
+          if (!finalPayload?.success) {
+            setErrorMsg(finalPayload?.error ?? "Something went wrong. Please try again.");
+            setStage("error"); return;
+          }
+
+          const askingPrice = parseFloat(askingPriceInput.replace(/[^0-9.,]/g, "").replace(/,/g, ""));
+          const resultWithPrice = {
+            ...finalPayload.result,
+            askingPrice: !isNaN(askingPrice) && askingPrice > 0 ? askingPrice : null,
+          };
+          sessionStorage.setItem("maintenance_audit_result", JSON.stringify(resultWithPrice));
+          const caseId = "maint_" + Date.now();
+          setStage("done");
+          setTimeout(() => router.push(`/audit/${caseId}/maintenance`), 600);
+          return; // Done — skip the old res.json() path below
+        }
 
       } else {
         // Manual
@@ -151,7 +210,12 @@ export default function MaintenanceAuditPage() {
       }
 
       // Store result and navigate
-      sessionStorage.setItem("maintenance_audit_result", JSON.stringify(data.result));
+      const askingPrice = parseFloat(askingPriceInput.replace(/[^0-9.]/g, ""));
+      const resultWithPrice = {
+        ...data.result,
+        askingPrice: !isNaN(askingPrice) && askingPrice > 0 ? askingPrice : null,
+      };
+      sessionStorage.setItem("maintenance_audit_result", JSON.stringify(resultWithPrice));
       const caseId = "maint_" + Date.now();
       setStage("done");
       setTimeout(() => router.push(`/audit/${caseId}/maintenance`), 600);
@@ -166,15 +230,15 @@ export default function MaintenanceAuditPage() {
       }
       setStage("error");
     }
-  }, [mode, pastedText, pasteSource, selectedFile, manualEntries, vin, mileage, router]);
+  }, [mode, pastedText, pasteSource, selectedFile, manualEntries, vin, mileage, router, askingPriceInput]);
 
 
   // ── File handlers ───────────────────────────────────────────────────────────
 
   const handleFile = (file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
-    if (!["pdf", "png", "jpg", "jpeg", "webp"].includes(ext ?? "")) {
-      setErrorMsg("Please upload a PDF, PNG, JPG, or WEBP file.");
+    if (!["pdf", "png", "jpg", "jpeg", "webp", "heic", "heif"].includes(ext ?? "")) {
+      setErrorMsg("Please upload a PDF, PNG, JPG, WEBP, or HEIC file.");
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -228,31 +292,66 @@ export default function MaintenanceAuditPage() {
             : <Car size={24} color="#818CF8" />}
         </div>
 
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", marginBottom: 8 }}>
-            {stage === "done" ? "Audit complete!" : "Running audit…"}
+        <div style={{ textAlign: "center", width: "100%" }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", marginBottom: 6 }}>
+            {stage === "done" ? "Audit complete!" : "Analyzing..."}
           </div>
-          <div style={{
-            fontSize: 13, color: "#64748B",
-            minHeight: 20, transition: "opacity 0.4s",
-          }}>
-            {PROCESSING_STEPS[processingStep]}
+
+          {/* Real-time progress bar */}
+          {stage === "processing" && (
+            <div style={{ width: "100%", height: 4, background: "#E2E8F0", borderRadius: 4, marginBottom: 10, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: 4,
+                background: "linear-gradient(90deg, #6366F1, #8B5CF6)",
+                width: `${streamProgress.pct}%`,
+                transition: "width 0.6s ease",
+              }} />
+            </div>
+          )}
+
+          {/* Stage message */}
+          <div style={{ fontSize: 13, color: "#64748B", minHeight: 20, marginBottom: 8 }}>
+            {stage === "done" ? "Redirecting to your report..." : streamProgress.message}
           </div>
+
+          {/* Vehicle name discovery */}
+          {streamProgress.vehicle && (
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "6px 12px", background: "#EFF6FF",
+              border: "1px solid #BFDBFE", borderRadius: 20,
+              fontSize: 13, fontWeight: 600, color: "#1D4ED8",
+              animation: "slideUp 0.3s ease",
+              marginBottom: 8,
+            }}>
+              <CheckCircle size={13} color="#22C55E" />
+              {streamProgress.vehicle.year} {streamProgress.vehicle.make} {streamProgress.vehicle.model}
+              {streamProgress.vehicle.currentMileage ? `, ${streamProgress.vehicle.currentMileage.toLocaleString()} mi` : ""}
+            </div>
+          )}
+
+          {/* Early verdict */}
+          {streamProgress.earlyVerdict && streamProgress.earlyVerdict !== "incomplete" && (
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", background: "#F0FDF4",
+              border: "1px solid #BBF7D0", borderRadius: 20,
+              fontSize: 12, fontWeight: 600, color: "#15803D",
+              animation: "slideUp 0.3s ease",
+            }}>
+              ✓ {streamProgress.earlyVerdict === "clean" || streamProgress.earlyVerdict === "strong_buy" ? "Clean maintenance record"
+                : streamProgress.earlyVerdict === "good_buy" || streamProgress.earlyVerdict === "reasonable_buy" ? "Good condition"
+                : streamProgress.earlyVerdict === "buy_if_priced_right" ? "Minor gaps found"
+                : "Analysis complete"}
+            </div>
+          )}
         </div>
 
-        <div style={{
-          display: "flex", gap: 6,
-        }}>
-          {PROCESSING_STEPS.map((_, i) => (
-            <div key={i} style={{
-              width: 6, height: 6, borderRadius: "50%",
-              background: i <= processingStep ? "#6366F1" : "#CBD5E1",
-              transition: "background 0.4s",
-            }} />
-          ))}
-        </div>
+        <style>{`
+          @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+          @keyframes slideUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+        `}</style>
 
-        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -309,6 +408,34 @@ export default function MaintenanceAuditPage() {
             and show exactly what&apos;s missing and what it will cost to catch up.
           </p>
         </div>
+
+        {/* ── Compare Cars banner ─────────────────────────────────────── */}
+        <a href="/compare" style={{ textDecoration: "none" }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+            padding: "18px 22px",
+            background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+            borderRadius: 16, cursor: "pointer",
+          }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: "#A5B4FC", letterSpacing: "0.1em" }}>⚡ NEW</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: "#F8FAFC" }}>Compare Multiple Cars</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.5 }}>
+                Upload 2–5 Carfaxes. We&apos;ll rank them and tell you which one to buy.
+              </div>
+            </div>
+            <div style={{
+              flexShrink: 0, padding: "8px 16px",
+              background: "rgba(79,70,229,0.3)", border: "1px solid rgba(129,140,248,0.4)",
+              borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#A5B4FC",
+              whiteSpace: "nowrap",
+            }}>
+              Compare →
+            </div>
+          </div>
+        </a>
 
         {/* Mode switcher */}
         <div style={{
@@ -402,7 +529,7 @@ export default function MaintenanceAuditPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,image/*"
               style={{ display: "none" }}
               onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
             />
@@ -567,6 +694,29 @@ export default function MaintenanceAuditPage() {
             {errorMsg || "Something went wrong. Please try again."}
           </div>
         )}
+
+        {/* Asking price — shown for all modes */}
+        <div style={{
+          background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)",
+          borderRadius: 12, padding: "16px 18px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 3 }}>What's the asking price?</div>
+            <div style={{ fontSize: 12, color: "#64748B" }}>Used to classify the deal and generate your offer range.</div>
+          </div>
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94A3B8", fontSize: 14, fontWeight: 600 }}>$</span>
+            <input
+              value={askingPriceInput}
+              onChange={e => setAskingPriceInput(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="optional"
+              style={{ ...inputStyle, width: 120, paddingLeft: 24, fontWeight: 700, fontSize: 15 }}
+              onFocus={e => (e.target.style.borderColor = "rgba(99,102,241,0.4)")}
+              onBlur={e => (e.target.style.borderColor = "rgba(0,0,0,0.10)")}
+            />
+          </div>
+        </div>
 
         {/* Submit button */}
         <button

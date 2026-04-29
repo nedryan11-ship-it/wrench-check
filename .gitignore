@@ -40,3 +40,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# Test files — too large for git
+scripts/test-pdfs/
+scripts/test-pdfs-new/
+scripts/batch-results/
+temp_echopark.md
+test-search.js
+test_scrape.ts
+*.py
+update_nav_prompt.py
+update_prompt.py

@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WrenchCheck — Deal Analysis</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: #F8FAFC; color: #0F172A; padding: 40px; }
+    .page-title { font-size: 32px; font-weight: 900; color: #0F172A; margin-bottom: 6px; letter-spacing: -0.04em; }
+    .page-sub { font-size: 14px; color: #64748B; margin-bottom: 40px; }
+  </style>
+</head>
+<body>
+  <div style="max-width:860px;margin:0 auto;">
+    <div class="page-title">WrenchCheck Deal Analysis</div>
+    <div class="page-sub">8 vehicles · with real asking prices · MarketCheck data · April 15, 2026</div>
+    
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2015 Jeep Grand Cherokee</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">Limited · 155,389 mi · VIN: 1C4RJFBG0FC814917</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#FEF2F2;border:1.5px solid #B91C1C33;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#B91C1C;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#B91C1C;">Proceed with Caution</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#B91C1C15;border:1px solid #B91C1C30;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#B91C1C;letter-spacing:0.1em;margin-bottom:16px;">MAINTENANCE-DRIVEN</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#FEF2F2;border-left:4px solid #B91C1C;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#B91C1C;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Overpriced AND high maintenance risk — hard pass unless they come down to ~$9500 and you're prepared for more.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">⚠️</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#B91C1C;">Overpaying by ~$3000</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$10k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$9000–$11k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$12,999</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">8 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 3 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>The 2015 Grand Cherokee is known for potential oil consumption issues, particularly with the 3.6L V6 engine, which may require more frequent oil checks and top-offs.
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2018 Land Rover Range Rover Evoque</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">HSE · 47,849 mi · VIN: SALVR2RX0JH274690</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#FEF2F2;border:1.5px solid #B91C1C33;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#B91C1C;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#B91C1C;">Proceed with Caution</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#B91C1C15;border:1px solid #B91C1C30;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#B91C1C;letter-spacing:0.1em;margin-bottom:16px;">MAINTENANCE-DRIVEN</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#FEF2F2;border-left:4px solid #B91C1C;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#B91C1C;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Overpriced AND high maintenance risk — hard pass unless they come down to ~$17k and you're prepared for more.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">⚠️</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#B91C1C;">Overpaying by ~$3000</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$17k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$15k–$19k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$19,990</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">10 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 5 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>The 2018 Range Rover Evoque is known for potential oil consumption issues, which should be monitored closely to avoid costly repairs.
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2020 Land Rover Discovery Sport</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">P250 S · 79,343 mi · VIN: SALCJ2FX0LH880996</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#FFFBEB;border:1.5px solid #B4530933;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#B45309;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#B45309;">Buy if Priced Right</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#B4530915;border:1px solid #B4530930;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:16px;">MIXED</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#FFFBEB;border-left:4px solid #B45309;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Overpriced — target ~$15k or walk. Market data is your leverage.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">⚠️</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#B91C1C;">Overpaying by ~$2500</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$16k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$14k–$17k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$17,999</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">8 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 3 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>The timing chain tensioner is a critical component to monitor closely, as failure can lead to significant engine damage.
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2020 Lincoln Aviator</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">Reserve · 84,633 mi · VIN: 5LM5J7XC0LGL07037</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#FFFBEB;border:1.5px solid #B4530933;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#B45309;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#B45309;">Buy if Priced Right</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#B4530915;border:1px solid #B4530930;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:16px;">MIXED</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#FFFBEB;border-left:4px solid #B45309;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Fair price for a clean car. Buy at asking.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">⚠️</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#B91C1C;">Overpaying by ~$2500</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$27k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$25k–$30k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$29,999</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">10 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 5 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>The 2020 Lincoln Aviator is known for potential transmission issues that can arise, making it crucial to monitor performance closely.
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2022 Jeep Wagoneer</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">Series III · 64,977 mi · VIN: 1C4SJVDT9NS140180</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#FFFBEB;border:1.5px solid #B4530933;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#B45309;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#B45309;">Buy if Priced Right</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#B4530915;border:1px solid #B4530930;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:16px;">MIXED</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#FFFBEB;border-left:4px solid #B45309;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Fair price for a clean car. Buy at asking.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">✓</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#1D4ED8;">About right — within market range</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$39k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$35k–$43k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$39,998</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">8 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 3 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>The 2022 Jeep Wagoneer may experience transmission issues, particularly shuddering, which should be monitored closely at this mileage.
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2024 Mitsubishi Outlander Sport</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">SE · 47,967 mi · VIN: JA4ARUAU0RU004004</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#FFFBEB;border:1.5px solid #B4530933;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#B45309;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#B45309;">Buy if Priced Right</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#B4530915;border:1px solid #B4530930;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:16px;">MIXED</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#FFFBEB;border-left:4px solid #B45309;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Buy at asking — fairly priced. No meaningful negotiation edge.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">✅</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#15803D;">Below market by ~$1000</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$18k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$17k–$20k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$17,380</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">7 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B91C1C;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 2 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2024 Jeep Grand Cherokee</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">4XE · 19,847 mi · VIN: 1C4RJYB66RC196476</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#EFF6FF;border:1.5px solid #1D4ED833;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#1D4ED8;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#1D4ED8;">Good Buy</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#1D4ED815;border:1px solid #1D4ED830;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#1D4ED8;letter-spacing:0.1em;margin-bottom:16px;">PRICE-DRIVEN</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#EFF6FF;border-left:4px solid #1D4ED8;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#1D4ED8;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Buy at asking — fairly priced. No meaningful negotiation edge.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">✅</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#15803D;">Below market by ~$1500</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$31k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$28k–$35k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$29,948</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">5 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div>
+        
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>The 4XE's hybrid system can be sensitive to charging habits, and improper use may lead to premature battery issues, so ensure proper charging practices are followed.
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:20px;padding:28px 32px;margin-bottom:32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);page-break-inside:avoid;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#94A3B8;letter-spacing:0.15em;margin-bottom:4px;">WRENCHCHECK AUDIT</div>
+        <div style="font-size:26px;font-weight:900;color:#0F172A;letter-spacing:-0.03em;">2024 Land Rover Defender 110</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">P400 X-Dynamic SE · 18,941 mi · VIN: SALE27EU2R2279692</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+        <div style="background:#EFF6FF;border:1.5px solid #1D4ED833;border-radius:12px;padding:10px 18px;display:inline-block;">
+          <div style="font-size:11px;font-weight:700;color:#1D4ED8;letter-spacing:0.08em;margin-bottom:2px;">VERDICT</div>
+          <div style="font-size:22px;font-weight:900;color:#1D4ED8;">Good Buy</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode badge -->
+    <div style="display:inline-block;background:#1D4ED815;border:1px solid #1D4ED830;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;color:#1D4ED8;letter-spacing:0.1em;margin-bottom:16px;">PRICE-DRIVEN</div>
+
+    <!-- What I'd Do — hero action -->
+    <div style="background:#EFF6FF;border-left:4px solid #1D4ED8;border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#1D4ED8;letter-spacing:0.1em;margin-bottom:6px;">WHAT I'D DO</div>
+      <div style="font-size:14px;font-weight:700;color:#0F172A;line-height:1.5;">Fair price, clean car. Buy at asking or nudge $500–$1k max — don't lose it over noise.</div>
+    </div>
+
+    <!-- Price gap banner -->
+    <div style="display:flex;align-items:center;gap:12px;background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:20px;">✓</span>
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#1D4ED8;">About right — within market range</div>
+        <div style="font-size:11px;color:#64748B;margin-top:1px;">vs. ~$65k market mid</div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MARKET RANGE</div>
+        <div style="font-size:18px;font-weight:800;color:#475569;">~$59k–$72k</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">✓ MarketCheck live</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">ASKING PRICE</div>
+        <div style="font-size:18px;font-weight:800;color:#0F172A;">$66,498</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">from listing</div>
+      </div>
+      <div style="background:#F8FAFC;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:4px;">MAINTENANCE DEBT</div>
+        <div style="font-size:18px;font-weight:800;color:#15803D;">None</div>
+        <div style="font-size:10px;color:#94A3B8;margin-top:2px;">7 overdue items</div>
+      </div>
+    </div>
+
+    <!-- Overdue items -->
+    
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:0.08em;margin-bottom:8px;">OVERDUE MAINTENANCE</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#B45309;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F1F5F9;font-size:12px;">
+      <span style="color:#0F172A;">undefined</span>
+      <span style="color:#64748B;font-weight:700;">$0</span>
+    </div>
+        <div style="font-size:11px;color:#94A3B8;padding-top:6px;">+ 2 more items</div>
+      </div>
+    </div>
+
+    <!-- Expert take -->
+    <div style="background:#FEFCE8;border:1px solid #FEF08A;border-radius:10px;padding:10px 14px;font-size:12px;color:#854D0E;line-height:1.55;">
+      <span style="font-weight:800;font-size:10px;letter-spacing:0.08em;display:block;margin-bottom:4px;color:#A16207;">EXPERT TAKE</span>null
+    </div>
+  </div>
+  </div>
+</body>
+</html>

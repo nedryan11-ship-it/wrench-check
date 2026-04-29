@@ -235,7 +235,105 @@ If none fit, use "unknown_service". Be conservative — trust matters more than 
   };
 }
 
-// ─── Batch helper ─────────────────────────────────────────────────────────────
+// ─── Batch LLM fallback ──────────────────────────────────────────────────────
+
+async function batchLlmFallbackMap(
+  items: string[]
+): Promise<Map<string, CanonicalMapResult>> {
+  const results = new Map<string, CanonicalMapResult>();
+  if (items.length === 0) return results;
+
+  const validKeys = CANONICAL_SERVICE_REGISTRY
+    .filter(d => d.key !== "unknown_service")
+    .map(d => `${d.key} (${d.displayName})`)
+    .join(", ");
+
+  try {
+    const { default: OpenAI } = await import("openai");
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{
+        role: "user",
+        content: `Map each vehicle service description to the best canonical service key.
+        
+Valid canonical keys: ${validKeys}
+
+Input descriptions:
+${items.map((it, i) => `${i}: "${it}"`).join("\n")}
+
+Return ONLY a JSON object where keys are the indices (0, 1, 2...) and values are objects: { "key": "canonical_key", "confidence": "high|medium|low", "reasoning": "brief explanation" }
+
+If none fit, use "unknown_service". Be conservative.`,
+      }],
+      max_tokens: 2000,
+      temperature: 0,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0].message.content ?? "{}";
+    const parsed = JSON.parse(raw) as Record<string, { key?: string; confidence?: string; reasoning?: string }>;
+
+    items.forEach((item, i) => {
+      const p = parsed[i.toString()];
+      if (p?.key && p.key !== "unknown_service") {
+        results.set(item, {
+          canonicalService: p.key as CanonicalService,
+          confidence: (p.confidence as any) ?? "low",
+          reasoning: p.reasoning ?? "Batch-LLM-mapped",
+        });
+      }
+    });
+
+  } catch (err) {
+    console.warn("[mapToCanonicalService] Batch LLM fallback failed:", err);
+  }
+
+  return results;
+}
+
+// ─── Batch exports ────────────────────────────────────────────────────────────
+
+/**
+ * Map an array of raw strings to canonical services.
+ * 1. Synchronous deterministic pass for everything.
+ * 2. Single batched LLM fallback for all remaining unknowns.
+ */
+export async function batchMapToCanonicalWithFallback(
+  items: string[],
+  sourceType: ServiceSourceType
+): Promise<CanonicalMapResult[]> {
+  const finalResults: CanonicalMapResult[] = new Array(items.length);
+  const needsFallback: { index: number; rawText: string }[] = [];
+
+  // Step 1: Deterministic pass
+  items.forEach((rawText, i) => {
+    const res = mapToCanonicalService({ rawText, sourceType });
+    if (res.canonicalService === "unknown_service") {
+      needsFallback.push({ index: i, rawText });
+    } else {
+      finalResults[i] = res;
+    }
+  });
+
+  // Step 2: Batch LLM fallback
+  if (needsFallback.length > 0) {
+    const uniqueUnknowns = Array.from(new Set(needsFallback.map(f => f.rawText)));
+    const llmResults = await batchLlmFallbackMap(uniqueUnknowns);
+
+    needsFallback.forEach(f => {
+      const llm = llmResults.get(f.rawText);
+      finalResults[f.index] = llm ?? {
+        canonicalService: "unknown_service",
+        confidence: "low",
+        reasoning: "No match found.",
+      };
+    });
+  }
+
+  return finalResults;
+}
 
 /**
  * Map an array of raw strings to canonical services.

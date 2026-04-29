@@ -1,32 +1,33 @@
 // lib/maintenanceDebt/verdict.ts
 // Confidence-aware verdict classification.
 //
-// KEY PRINCIPLE: Missing ≠ Overdue.
-// When schedule is AI-estimated, "not in records" means "unknown", not "neglected".
-// Only fire aggressive verdicts when we have VDB-confirmed data + clear evidence.
+// KEY PRINCIPLE: Maintenance cost alone ≠ risk.
+// Missing records ≠ Overdue. Routine gaps ≠ Walk Away.
+// Verdicts must feel proportional and grounded in real-world impact.
 
 import type { MaintenanceDebtItem } from "./types";
 
 const UPCOMING_WINDOW_MILES = 10_000;
 
 export type Verdict =
-  | "strong_buy"           // clean history, evidence confirmed
-  | "reasonable_buy"       // 1–2 gaps, manageable cost — default middle state
-  | "proceed_caution"      // missing services, verify before buying
-  | "high_risk"            // serious confirmed gaps with safety relevance
-  | "walk_away"            // rare: reserved for confirmed structural failures
-  | "clean"                // legacy alias → strong_buy in UI
-  | "light_catch_up"       // legacy alias → reasonable_buy in UI
-  | "maintenance_debt_risk"// legacy alias → proceed_caution in UI
+  | "strong_buy"           // clean history, confirmed records
+  | "good_buy"             // minor gaps, well-maintained overall
+  | "buy_if_priced_right"  // routine maintenance gaps — default middle state
+  | "proceed_caution"      // multiple gaps or safety-adjacent items, verify first
+  | "pass"                 // serious confirmed drivetrain/safety issues
+  | "reasonable_buy"       // legacy alias → good_buy
+  | "clean"                // legacy alias → strong_buy
+  | "light_catch_up"       // legacy alias → buy_if_priced_right
+  | "maintenance_debt_risk"// legacy alias → proceed_caution
+  | "high_risk"            // legacy alias → proceed_caution
+  | "walk_away"            // legacy alias → pass
   | "incomplete";          // no schedule available
 
 interface VerdictInput {
   debtItems: MaintenanceDebtItem[];
   debtEstimateLow?: number | null;
   debtEstimateHigh?: number | null;
-  /** Confidence of the overall result — affects aggressiveness */
   confidence?: "low" | "medium" | "high";
-  /** Where the OEM schedule came from — drives weak-signal detection */
   scheduleSource?: "vehicle_databases" | "ai_estimated" | "none";
 }
 
@@ -42,39 +43,50 @@ export function computeVerdict({
   );
   const overdueCount = overdueItems.length;
   const highSevCount = overdueItems.filter((i) => i.severity === "high").length;
-  const estimate = debtEstimateHigh ?? debtEstimateLow ?? 0;
+  // Use midpoint of estimate range for calibration
+  const estimateMid = debtEstimateHigh != null && debtEstimateLow != null
+    ? (debtEstimateLow + debtEstimateHigh) / 2
+    : (debtEstimateHigh ?? debtEstimateLow ?? 0);
 
-  // Weak signal: AI-estimated schedule OR low confidence.
-  // These results cannot accurately distinguish "neglected" from "unrecorded".
   const isWeakSignal =
     scheduleSource !== "vehicle_databases" || confidence === "low";
 
-  // No overdue items → positive result
+  // ── No overdue items → positive result ────────────────────────────────────
   if (overdueCount === 0) {
     return scheduleSource === "vehicle_databases" && confidence !== "low"
       ? "strong_buy"
-      : "reasonable_buy";
+      : "good_buy";
   }
 
-  // High risk: only fire with strong signal (VDB + confirmed data) + serious debt
-  // Never auto-trigger for AI-estimated results — those are "unknown", not "neglected"
+  // ── Pass: only for confirmed serious drivetrain/safety failures ───────────
+  // Requires: strong signal + multiple high-severity items + significant cost
+  if (
+    !isWeakSignal &&
+    highSevCount >= 3 &&
+    overdueCount >= 5 &&
+    estimateMid > 3_000
+  ) {
+    return "pass";
+  }
+
+  // ── Proceed with caution: meaningful confirmed gaps ────────────────────────
+  // Only when: strong signal + multiple high-sev + $2k+ cost
   if (
     !isWeakSignal &&
     highSevCount >= 2 &&
-    overdueCount >= 4 &&
-    estimate > 1_500
+    estimateMid >= 2_000
   ) {
-    return "high_risk";
-  }
-
-  // Proceed with caution: meaningful gaps BUT data quality is uncertain
-  // This replaces "high_risk" for the vast majority of AI-estimated results
-  if (overdueCount >= 3 || estimate >= 700) {
     return "proceed_caution";
   }
 
-  // Reasonable buy: 1–2 items, manageable cost
-  return "reasonable_buy";
+  // ── Buy if priced right: routine maintenance gaps (default middle) ─────────
+  // $300–$1,999 routine catch-up, or AI-estimated data with multiple gaps
+  if (overdueCount >= 2 || estimateMid >= 300) {
+    return "buy_if_priced_right";
+  }
+
+  // ── Good buy: single minor item, low cost ─────────────────────────────────
+  return "good_buy";
 }
 
 export function verdictLabel(verdict: Verdict): string {
@@ -82,16 +94,19 @@ export function verdictLabel(verdict: Verdict): string {
     case "strong_buy":
     case "clean":
       return "Strong Buy";
+    case "good_buy":
     case "reasonable_buy":
     case "light_catch_up":
-      return "Reasonable Buy";
+      return "Good Buy";
+    case "buy_if_priced_right":
+      return "Buy if Priced Right";
     case "proceed_caution":
     case "maintenance_debt_risk":
-      return "Proceed with Caution";
     case "high_risk":
-      return "High Risk";
+      return "Proceed with Caution";
+    case "pass":
     case "walk_away":
-      return "Walk Away";
+      return "Pass";
     case "incomplete":
       return "Incomplete Analysis";
   }
@@ -101,18 +116,22 @@ export function verdictColor(verdict: Verdict): string {
   switch (verdict) {
     case "strong_buy":
     case "clean":
-      return "#16A34A";
+      return "#16A34A";  // green
+    case "good_buy":
     case "reasonable_buy":
     case "light_catch_up":
-      return "#D97706";
+      return "#2563EB";  // blue — positive signal
+    case "buy_if_priced_right":
+      return "#D97706";  // amber — neutral, factor it in
     case "proceed_caution":
     case "maintenance_debt_risk":
-      return "#C2410C";
     case "high_risk":
+      return "#C2410C";  // orange-red — caution but not panic
+    case "pass":
     case "walk_away":
-      return "#DC2626";
+      return "#DC2626";  // red — reserved for genuine problems
     case "incomplete":
-      return "#7C3AED";
+      return "#7C3AED";  // purple
   }
 }
 

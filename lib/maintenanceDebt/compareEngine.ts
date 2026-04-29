@@ -390,7 +390,7 @@ export function compareHistoryToSchedule({
     upcomingItems,
     debtEstimateLow,
     debtEstimateHigh,
-    verdict,
+    verdict: verdict as any,
     summary,
     confidence: "medium",        // overwritten by route.ts
     scheduleSource: "none",      // overwritten by route.ts
