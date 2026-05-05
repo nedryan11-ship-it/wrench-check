@@ -1,53 +1,9 @@
 "use client";
 import { useRouter } from "next/navigation";
 
-const tools = [
-  {
-    id: "mechanic",
-    href: "/audit/new",
-    badge: "INSTANT AUDIT",
-    badgeColor: "#4F46E5",
-    badgeBg: "#EEF2FF",
-    badgeBorder: "#C7D2FE",
-    icon: "🔧",
-    title: "Mechanic Report",
-    tagline: "Is this car hiding something?",
-    description: "Upload a Carfax, dealer service receipt, or paste VIN history. We flag overdue maintenance, known failure points, and what it'll actually cost you.",
-    ctaLabel: "Run a free audit →",
-    ctaStyle: { background: "#0F172A" },
-  },
-  {
-    id: "maintenance",
-    href: "/maintenance",
-    badge: "TRACK YOUR CAR",
-    badgeColor: "#15803D",
-    badgeBg: "#F0FDF4",
-    badgeBorder: "#86EFAC",
-    icon: "📋",
-    title: "Maintenance Tracker",
-    tagline: "Stay ahead of your service schedule.",
-    description: "Log your car's service history, get a live maintenance debt score, and never miss the services that matter before a big repair bill arrives.",
-    ctaLabel: "Start tracking →",
-    ctaStyle: { background: "#15803D" },
-  },
-  {
-    id: "hunt",
-    href: "/hunt",
-    badge: "MULTI-CAR COMPARE",
-    badgeColor: "#B45309",
-    badgeBg: "#FFFBEB",
-    badgeBorder: "#FDE68A",
-    icon: "⚡",
-    title: "The Gauntlet",
-    tagline: "Find the gem in a sea of listings.",
-    description: "Paste links to cars you're considering. We scrape them, audit each one, and rank by real value — price vs. fair market, mileage-adjusted, location risk included.",
-    ctaLabel: "Start a new hunt →",
-    ctaStyle: { background: "#B45309" },
-  },
-];
-
-export default function HubPage() {
+export default function HomePage() {
   const router = useRouter();
+  const BRAND = "#00236F";
 
   return (
     <div style={{
@@ -60,14 +16,14 @@ export default function HubPage() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; }
+        .hero-btn { transition: all 0.2s ease; cursor: pointer; }
+        .hero-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,35,111,0.4) !important; }
         .tool-card { transition: transform 0.2s ease, box-shadow 0.2s ease; cursor: pointer; }
-        .tool-card:hover { transform: translateY(-4px); box-shadow: 0 24px 64px rgba(0,0,0,0.35) !important; }
-        .cta-btn { transition: opacity 0.15s ease, transform 0.15s ease; }
-        .cta-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .tool-card:hover { transform: translateY(-3px); box-shadow: 0 16px 48px rgba(0,0,0,0.3) !important; }
       `}</style>
 
       {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 56, maxWidth: 560 }}>
+      <div style={{ textAlign: "center", marginBottom: 48, maxWidth: 600 }}>
         <div style={{
           display: "inline-block", padding: "5px 14px",
           background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
@@ -80,90 +36,66 @@ export default function HubPage() {
           fontSize: "clamp(32px, 6vw, 52px)", fontWeight: 900, color: "#F8FAFC",
           margin: "0 0 16px", letterSpacing: "-0.04em", lineHeight: 1.05,
         }}>
-          Every tool you need<br />to buy a used car right.
+          Before you spend<br />on your car —<br /><span style={{ color: "#60A5FA" }}>we'll tell you what to do.</span>
         </h1>
         <p style={{ fontSize: 17, color: "#94A3B8", lineHeight: 1.6, margin: 0 }}>
-          Stop guessing. Know what you're buying before you sign anything.
+          Got a repair quote? Drop it in. We'll analyze every line, check your car's value, and give you a clear answer: fix it or sell it.
         </p>
       </div>
 
-      {/* Tool cards */}
+      {/* Hero CTA */}
+      <button
+        className="hero-btn"
+        onClick={() => router.push("/fix-or-sell")}
+        style={{
+          padding: "18px 48px",
+          background: "linear-gradient(135deg, #00236F, #1E40AF)",
+          color: "#fff",
+          border: "none",
+          borderRadius: 16,
+          fontSize: 16,
+          fontWeight: 800,
+          letterSpacing: "-0.01em",
+          boxShadow: "0 8px 32px rgba(0,35,111,0.3)",
+          marginBottom: 56,
+        }}
+      >
+        ⚡ Analyze My Repair Quote
+      </button>
+
+      {/* Secondary tools */}
+      <p style={{ fontSize: 11, fontWeight: 700, color: "#475569", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 16 }}>
+        More tools
+      </p>
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-        gap: 20,
-        width: "100%",
-        maxWidth: 1020,
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: 16, width: "100%", maxWidth: 680,
       }}>
-        {tools.map((tool) => (
+        {[
+          { href: "/audit/new", icon: "🔧", title: "Service Invoice Audit", desc: "Upload any shop estimate — we'll tell you if prices are fair and what to negotiate." },
+          { href: "/maintenance", icon: "📋", title: "Maintenance Tracker", desc: "Track your car's service history and see what's coming due." },
+        ].map(tool => (
           <div
-            key={tool.id}
+            key={tool.href}
             className="tool-card"
             onClick={() => router.push(tool.href)}
             style={{
-              background: "#FFFFFF",
-              borderRadius: 20,
-              padding: 28,
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 14,
+              background: "rgba(255,255,255,0.06)",
+              borderRadius: 16, padding: 20,
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
             }}
           >
-            {/* Badge */}
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "4px 10px",
-              background: tool.badgeBg, border: `1px solid ${tool.badgeBorder}`,
-              borderRadius: 99, alignSelf: "flex-start",
-            }}>
-              <span style={{ fontSize: 12 }}>{tool.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: 800, color: tool.badgeColor, letterSpacing: "0.08em" }}>
-                {tool.badge}
-              </span>
-            </div>
-
-            {/* Title + tagline */}
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: "#0F172A", letterSpacing: "-0.02em", marginBottom: 4 }}>
-                {tool.title}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#475569" }}>
-                {tool.tagline}
-              </div>
-            </div>
-
-            {/* Description */}
-            <div style={{ fontSize: 13, color: "#64748B", lineHeight: 1.6 }}>
-              {tool.description}
-            </div>
-
-            {/* CTA */}
-            <button
-              className="cta-btn"
-              style={{
-                marginTop: 4,
-                padding: "12px 20px",
-                border: "none",
-                borderRadius: 10,
-                color: "#FFF",
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                textAlign: "left",
-                ...tool.ctaStyle,
-              }}
-            >
-              {tool.ctaLabel}
-            </button>
+            <div style={{ fontSize: 24, marginBottom: 8 }}>{tool.icon}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#F1F5F9", marginBottom: 4 }}>{tool.title}</div>
+            <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.5 }}>{tool.desc}</div>
           </div>
         ))}
       </div>
 
-      {/* Footer */}
       <div style={{ marginTop: 56, fontSize: 12, color: "#475569", textAlign: "center" }}>
-        Built for buyers who do their homework.
+        Built for car owners who want straight answers.
       </div>
     </div>
   );

@@ -114,21 +114,58 @@ export async function GET(req: Request) {
       const mcLeads = await fetchMarketCheckLeads(config);
       console.log(`[scout] Marketcheck returned ${mcLeads.length} listings`);
 
+      // ── Compute segment medians from the full Marketcheck dataset ────────
+      // Much better than scraping Cars.com — same-source, accurate, instant
+      const yearPrices = new Map<number, number[]>();
+      const yearTrimPrices = new Map<string, number[]>();
+      const allPrices: number[] = [];
+
+      for (const mc of mcLeads) {
+        if (!mc.price || mc.price <= 0) continue;
+        allPrices.push(mc.price);
+        if (!yearPrices.has(mc.year)) yearPrices.set(mc.year, []);
+        yearPrices.get(mc.year)!.push(mc.price);
+        const segKey = `${mc.year}|${(mc.trim || 'Base').toLowerCase()}`;
+        if (!yearTrimPrices.has(segKey)) yearTrimPrices.set(segKey, []);
+        yearTrimPrices.get(segKey)!.push(mc.price);
+      }
+
+      function mcMedian(arr: number[]): number {
+        if (!arr.length) return 0;
+        const s = [...arr].sort((a, b) => a - b);
+        const m = Math.floor(s.length / 2);
+        return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+      }
+
+      function getSegmentMedian(year: number, trim: string): { median: number; count: number; label: string } {
+        const segKey = `${year}|${(trim || 'Base').toLowerCase()}`;
+        const segP = yearTrimPrices.get(segKey);
+        if (segP && segP.length >= 3) return { median: mcMedian(segP), count: segP.length, label: `${year} ${trim || 'Base'}` };
+        const yrP = yearPrices.get(year);
+        if (yrP && yrP.length >= 2) return { median: mcMedian(yrP), count: yrP.length, label: `${year} all trims` };
+        if (allPrices.length >= 2) return { median: mcMedian(allPrices), count: allPrices.length, label: `all years` };
+        return { median: 0, count: 0, label: 'no comps' };
+      }
+
+      const poolMed = allPrices.length >= 2 ? mcMedian(allPrices) : 0;
+      console.log(`[scout] Market medians: pool=$${poolMed.toLocaleString()} (${allPrices.length} listings), segments: ${[...yearPrices.entries()].map(([y, p]) => `${y}: $${mcMedian(p).toLocaleString()} (${p.length})`).join(', ')}`);
+
+      // ── Score and insert each lead ──────────────────────────────────────
       for (const mc of mcLeads) {
         if (seenUrls.has(mc.url)) continue;
         if (mc.vin && seenUrls.has(mc.vin)) continue;
         seenUrls.add(mc.url);
         if (mc.vin) seenUrls.add(mc.vin);
 
-        // Direct WrenchScore — no scrape needed, data is structured
-        const comps = await fetchMarketComps(mc.make, mc.model, mc.year, mc.mileage || 80000);
+        const seg = getSegmentMedian(mc.year, mc.trim);
+
         const ws = computeWrenchScore({
           year: mc.year, make: mc.make, model: mc.model,
           mileage: mc.mileage || 0,
           price: mc.price || 0,
-          marketMid: comps?.priceMed ?? null,
+          marketMid: seg.median || null,
           auditDebt: 0,
-          tcoYear1High: comps?.priceMed ? comps.priceMed * 0.08 : 3000,
+          tcoYear1High: seg.median ? Math.round(seg.median * 0.07) : 3000,
           hasAccident: mc.hasAccident,
           ownerCount: mc.ownerCount,
           location: mc.location,
@@ -144,8 +181,8 @@ export async function GET(req: Request) {
         if (mc.price && config.price_max && mc.price <= config.price_max * 0.9) criteriaSignals.push('✅ Well under budget');
         if (mc.hasAccident === false) criteriaSignals.push('✅ No accidents');
         if (mc.ownerCount === 1) criteriaSignals.push('✅ Single owner');
-        if (comps?.priceMed && mc.price && mc.price < comps.priceMed) {
-          criteriaSignals.push(`✅ $${(comps.priceMed - mc.price).toLocaleString()} below market`);
+        if (seg.median && mc.price && mc.price < seg.median) {
+          criteriaSignals.push(`✅ $${(seg.median - mc.price).toLocaleString()} below market`);
         }
 
         const { error: insertErr } = await supabaseAdmin.from("scout_leads").insert({
@@ -158,7 +195,7 @@ export async function GET(req: Request) {
           shadow_score: ws.score, shadow_tier: ws.tier,
           transit_level: transit.level, transit_label: transit.label,
           gem_price_target: ws.gemPriceTarget,
-          market_mid: comps?.priceMed ?? null,
+          market_mid: seg.median || null,
           source: 'marketcheck',
           status: 'new',
           discovered_at: new Date().toISOString(),
@@ -168,12 +205,13 @@ export async function GET(req: Request) {
             sellerName: mc.sellerName, sellerType: mc.sellerType,
             daysOnMarket: mc.daysOnMarket, carfaxCleanTitle: mc.carfaxCleanTitle,
             criteriaSignals,
+            compSegment: seg.label, compCount: seg.count,
           },
         });
 
         if (!insertErr) {
           totalLeads++;
-          console.log(`[scout] +MC lead: ${mc.title} | $${mc.price?.toLocaleString()} | score=${ws.score}`);
+          console.log(`[scout] +MC lead: ${mc.title} | $${mc.price?.toLocaleString()} | score=${ws.score} | mkt=$${seg.median.toLocaleString()} (${seg.count} comps)`);
 
           // Gem alert email
           if (ws.score >= GEM_THRESHOLD && transit.level <= MAX_TRANSIT_FOR_ALERT) {
