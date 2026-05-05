@@ -412,12 +412,25 @@ export async function fetchMarketCheckLeads(config: ScoutConfig): Promise<Market
 
   for (let year = yearMin; year <= yearMax; year++) {
     try {
+      // Marketcheck model name normalization — their API uses base model names
+      // e.g. "LX" not "LX 570", "GX" not "GX 460", "Land Cruiser" not "land cruiser"
+      const MC_MODEL_MAP: Record<string, string> = {
+        'lx 570': 'LX', 'lx570': 'LX', 'lx 600': 'LX', 'lx600': 'LX',
+        'gx 460': 'GX', 'gx460': 'GX', 'gx 550': 'GX', 'gx550': 'GX',
+        'rx 350': 'RX', 'rx350': 'RX',
+        'land cruiser': 'Land Cruiser',
+        '4runner': '4Runner', '4 runner': '4Runner',
+      };
+      const rawModel = (config.model || '').toLowerCase().trim();
+      const mcModel = MC_MODEL_MAP[rawModel]
+        || rawModel.replace(/\s+\d{3,}$/, '').split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+
       const params = new URLSearchParams({
         api_key: apiKey,
         ...(apiSecret ? { api_secret: apiSecret } : {}),
         year: String(year),
         make: (config.make || "").charAt(0).toUpperCase() + (config.make || "").slice(1),
-        ...(config.model ? { model: config.model.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") } : {}),
+        ...(mcModel ? { model: mcModel } : {}),
         rows: "50",
         start: "0",
       });
