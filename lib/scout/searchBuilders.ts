@@ -375,3 +375,109 @@ export async function fetchIh8mudLeads(config: ScoutConfig): Promise<{ url: stri
 
   return allLeads;
 }
+
+// ── Marketcheck API fetcher ────────────────────────────────────────────────────
+// The most reliable source — proper API, structured data, VIN + CarFax signals.
+export interface MarketCheckLead {
+  url: string;
+  title: string;
+  price: number | null;
+  vin: string | null;
+  mileage: number | null;
+  year: number;
+  make: string;
+  model: string;
+  trim: string;
+  location: string | null;
+  hasAccident: boolean | null;
+  ownerCount: number | null;
+  photos: string[];
+  sellerName: string | null;
+  sellerType: string | null;
+  daysOnMarket: number | null;
+  exteriorColor: string | null;
+  carfaxCleanTitle: boolean | null;
+}
+
+export async function fetchMarketCheckLeads(config: ScoutConfig): Promise<MarketCheckLead[]> {
+  const apiKey = process.env.MARKETCHECK_API_KEY;
+  const apiSecret = process.env.MARKETCHECK_API_SECRET;
+  if (!apiKey) { console.warn("[scout] MARKETCHECK_API_KEY not set"); return []; }
+
+  const results: MarketCheckLead[] = [];
+
+  // Query each year in range
+  const yearMin = config.year_min ?? 2015;
+  const yearMax = config.year_max ?? new Date().getFullYear();
+
+  for (let year = yearMin; year <= yearMax; year++) {
+    try {
+      const params = new URLSearchParams({
+        api_key: apiKey,
+        ...(apiSecret ? { api_secret: apiSecret } : {}),
+        year: String(year),
+        make: (config.make || "").charAt(0).toUpperCase() + (config.make || "").slice(1),
+        ...(config.model ? { model: config.model.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") } : {}),
+        rows: "50",
+        start: "0",
+      });
+      if (config.price_max) params.set("price_range", `0-${config.price_max}`);
+      if (config.mileage_max) params.set("miles_range", `0-${config.mileage_max}`);
+
+      const url = `https://api.marketcheck.com/v2/search/car/active?${params}`;
+      console.log(`[scout/marketcheck] fetching year=${year}...`);
+
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), 15000);
+      const res = await fetch(url, { signal: abort.signal });
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        console.error(`[scout/marketcheck] HTTP ${res.status} for year=${year}`);
+        continue;
+      }
+
+      const data = await res.json();
+      const listings = data.listings ?? [];
+      console.log(`[scout/marketcheck] year=${year} → ${listings.length} listings`);
+
+      for (const l of listings) {
+        const listingUrl = l.vdp_url;
+        if (!listingUrl) continue;
+
+        const build = l.build ?? {};
+        const dealer = l.dealer ?? {};
+        const price = typeof l.price === "number" && l.price > 0 ? l.price : null;
+        if (!price) continue;
+
+        results.push({
+          url: listingUrl,
+          title: `${build.year ?? year} ${build.make ?? config.make ?? ""} ${build.model ?? config.model ?? ""}${build.trim ? ` ${build.trim}` : ""}`.trim(),
+          price,
+          vin: l.vin ?? null,
+          mileage: l.ref_miles ?? l.miles ?? null,
+          year: build.year ?? year,
+          make: build.make ?? config.make ?? "",
+          model: build.model ?? config.model ?? "",
+          trim: build.trim ?? "",
+          location: [dealer.city, dealer.state].filter(Boolean).join(", ") || null,
+          hasAccident: l.carfax_clean_title === true ? false : null,
+          ownerCount: l.carfax_1_owner === true ? 1 : null,
+          photos: l.media?.photo_links?.slice(0, 6) ?? [],
+          sellerName: dealer.name ?? null,
+          sellerType: l.seller_type ?? null,
+          daysOnMarket: l.dom_active ?? null,
+          exteriorColor: l.exterior_color ?? null,
+          carfaxCleanTitle: l.carfax_clean_title ?? null,
+        });
+      }
+
+      // Rate limit between years
+      if (year < yearMax) await new Promise(r => setTimeout(r, 500));
+    } catch (err: any) {
+      console.error(`[scout/marketcheck] error year=${year}:`, err.message);
+    }
+  }
+
+  return results;
+}

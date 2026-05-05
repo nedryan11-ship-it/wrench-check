@@ -16,10 +16,12 @@ import {
   fetchBaTLeads,
   fetchCarsAndBidsLeads,
   fetchIh8mudLeads,
+  fetchMarketCheckLeads,
   fetchSearchMarkdown,
   extractListingUrls,
   computeTransitFromDenver,
   type ScoutConfig,
+  type MarketCheckLead,
 } from "@/lib/scout/searchBuilders";
 
 export const maxDuration = 300;
@@ -106,7 +108,90 @@ export async function GET(req: Request) {
       }
     }
 
-    // Process each new URL with shadow scoring
+    // ── Marketcheck API (direct structured data — no scraping needed) ──────
+    if (config.sources?.includes("marketcheck")) {
+      console.log(`[scout] Running Marketcheck for ${config.label}...`);
+      const mcLeads = await fetchMarketCheckLeads(config);
+      console.log(`[scout] Marketcheck returned ${mcLeads.length} listings`);
+
+      for (const mc of mcLeads) {
+        if (seenUrls.has(mc.url)) continue;
+        if (mc.vin && seenUrls.has(mc.vin)) continue;
+        seenUrls.add(mc.url);
+        if (mc.vin) seenUrls.add(mc.vin);
+
+        // Direct WrenchScore — no scrape needed, data is structured
+        const comps = await fetchMarketComps(mc.make, mc.model, mc.year, mc.mileage || 80000);
+        const ws = computeWrenchScore({
+          year: mc.year, make: mc.make, model: mc.model,
+          mileage: mc.mileage || 0,
+          price: mc.price || 0,
+          marketMid: comps?.priceMed ?? null,
+          auditDebt: 0,
+          tcoYear1High: comps?.priceMed ? comps.priceMed * 0.08 : 3000,
+          hasAccident: mc.hasAccident,
+          ownerCount: mc.ownerCount,
+          location: mc.location,
+        } as any);
+
+        if (ws.score < 35) continue;
+
+        const transit = computeTransitFromDenver(mc.location);
+
+        // Criteria matching
+        const criteriaSignals: string[] = [];
+        if (mc.mileage && config.mileage_max && mc.mileage <= config.mileage_max * 0.8) criteriaSignals.push('✅ Well under mileage ceiling');
+        if (mc.price && config.price_max && mc.price <= config.price_max * 0.9) criteriaSignals.push('✅ Well under budget');
+        if (mc.hasAccident === false) criteriaSignals.push('✅ No accidents');
+        if (mc.ownerCount === 1) criteriaSignals.push('✅ Single owner');
+        if (comps?.priceMed && mc.price && mc.price < comps.priceMed) {
+          criteriaSignals.push(`✅ $${(comps.priceMed - mc.price).toLocaleString()} below market`);
+        }
+
+        const { error: insertErr } = await supabaseAdmin.from("scout_leads").insert({
+          scout_config_id: config.id,
+          listing_url: mc.url,
+          vin: mc.vin,
+          title: mc.title,
+          year: mc.year, make: mc.make, model: mc.model, trim: mc.trim,
+          mileage: mc.mileage, price: mc.price, location: mc.location,
+          shadow_score: ws.score, shadow_tier: ws.tier,
+          transit_level: transit.level, transit_label: transit.label,
+          gem_price_target: ws.gemPriceTarget,
+          market_mid: comps?.priceMed ?? null,
+          source: 'marketcheck',
+          status: 'new',
+          discovered_at: new Date().toISOString(),
+          raw_intel: {
+            hasAccident: mc.hasAccident, ownerCount: mc.ownerCount,
+            photos: mc.photos, exteriorColor: mc.exteriorColor,
+            sellerName: mc.sellerName, sellerType: mc.sellerType,
+            daysOnMarket: mc.daysOnMarket, carfaxCleanTitle: mc.carfaxCleanTitle,
+            criteriaSignals,
+          },
+        });
+
+        if (!insertErr) {
+          totalLeads++;
+          console.log(`[scout] +MC lead: ${mc.title} | $${mc.price?.toLocaleString()} | score=${ws.score}`);
+
+          // Gem alert email
+          if (ws.score >= GEM_THRESHOLD && transit.level <= MAX_TRANSIT_FOR_ALERT) {
+            try {
+              await getResend().emails.send({
+                from: "WrenchCheck Scout <onboarding@resend.dev>",
+                to: ALERT_EMAIL,
+                subject: `💎 GEM: ${mc.title} — Score ${ws.score} | ${transit.label}`,
+                html: `<h2>💎 ${mc.title}</h2><p>$${mc.price?.toLocaleString()} · ${mc.mileage?.toLocaleString()} mi · ${mc.location}</p><p>Score: ${ws.score} · ${transit.emoji} ${transit.label}</p><p>${criteriaSignals.join(' · ')}</p><p><a href="${mc.url}">View Listing</a></p>`,
+              });
+              totalGemAlerts++;
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // Process each new URL with shadow scoring (for non-Marketcheck sources)
     for (const { url, source } of newUrls.slice(0, 12)) {
       // Cap per run to avoid timeout
       try {
