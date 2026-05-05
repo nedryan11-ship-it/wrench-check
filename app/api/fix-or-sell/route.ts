@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseRepairQuote, enrichWithFairPrices } from "@/lib/fixOrSell/parseRepairQuote";
 import { estimateVehicleValue } from "@/lib/fixOrSell/vehicleValue";
 import { computeFixOrSell, type OwnershipHorizon } from "@/lib/fixOrSell/engine";
+import { computeSellEstimates } from "@/lib/fixOrSell/sellEstimates";
+import { computeReplacementAnalysis } from "@/lib/fixOrSell/replacementCost";
 import OpenAI from "openai";
 
 // ── Model Intelligence (lightweight version for fix-or-sell) ─────────────────
@@ -250,10 +252,15 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // ── Step 4: Run the decision engine ─────────────────────────────────────
+    // ── Step 4: Compute dealer retail value (pre-discount) ───────────────────
+    // vehicleValue is private party; dealer retail = vehicleValue / 0.83
+    const dealerRetailValue = Math.round(valueEstimate.value / 0.83 / 100) * 100;
+
+    // ── Step 5: Run the decision engine ─────────────────────────────────────
     const verdict = computeFixOrSell({
       repairCost: quote.totalCost,
       vehicleValue: valueEstimate.value,
+      dealerRetailValue,
       vehicleValueSource: valueEstimate.source === 'marketcheck_listings' ? 'marketcheck' : valueEstimate.source,
       reliabilityTier: modelIntel?.reliabilityTier ?? null,
       tco: modelIntel?.tco ?? null,
@@ -262,10 +269,19 @@ export async function POST(req: NextRequest) {
       ownershipHorizon,
       vehicleMileage: vehicle.mileage,
       vehicleYear: vehicle.year,
+      vehicleMake: vehicle.make,
       vehicleDesc,
     });
 
-    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()}`);
+    // ── Step 6: Sell estimates + replacement cost ───────────────────────────
+    const sellEstimates = computeSellEstimates(dealerRetailValue);
+    const replacement = computeReplacementAnalysis(
+      dealerRetailValue,
+      sellEstimates.bestMid,
+      quote.totalCost,
+    );
+
+    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | sell best=$${sellEstimates.bestMid.toLocaleString()} | switch cost=$${replacement.switchingCost.toLocaleString()}`);
 
     // ── Return complete result ──────────────────────────────────────────────
     return NextResponse.json({
@@ -288,6 +304,8 @@ export async function POST(req: NextRequest) {
         compCount: valueEstimate.compCount,
         methodology: valueEstimate.methodology,
       },
+      sellEstimates,
+      replacement,
       modelIntel: modelIntel ? {
         reliabilityTier: modelIntel.reliabilityTier,
         ownershipOutlook: modelIntel.ownershipOutlook,

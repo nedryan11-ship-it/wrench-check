@@ -261,6 +261,8 @@ export default function FixOrSellPage() {
         {step === "verdict" && result && (() => {
           const v = result.verdict;
           const dc = decisionColor(v.decision);
+          const se = result.sellEstimates;
+          const rp = result.replacement;
           return (<>
             {/* Headline card */}
             <div className="fos-card" style={{ padding: "32px 28px", textAlign: "center", borderLeft: `4px solid ${dc}` }}>
@@ -294,28 +296,99 @@ export default function FixOrSellPage() {
               <p style={{ fontSize: 14, fontWeight: 600, color: "#0D1C2E", lineHeight: 1.6, margin: 0 }}>{v.recommendation}</p>
             </div>
 
+            {/* Negotiated pricing */}
+            {v.negotiated && (
+              <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: "#FFFBEB", borderColor: "#FDE68A" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: AMBER, margin: "0 0 6px", textTransform: "uppercase" }}>💰 NEGOTIATE FIRST</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#92400E", lineHeight: 1.6, margin: 0 }}>{v.negotiated.note}</p>
+              </div>
+            )}
+
+            {/* Cascade intelligence */}
+            {v.cascadeSummary && !v.cascadeSummary.includes("No unusual") && !v.cascadeSummary.includes("standard maintenance") && (
+              <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FEF2F2" : "#F0F9FF", borderColor: v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FECACA" : "#BAE6FD" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? RED : "#0369A1", margin: "0 0 6px", textTransform: "uppercase" }}>🔍 MECHANICAL INTELLIGENCE</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#334155", lineHeight: 1.6, margin: 0 }}>{v.cascadeSummary}</p>
+              </div>
+            )}
+
             {/* Quote breakdown */}
             {result.quote?.items?.length > 0 && (
               <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
                 <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
                   <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>QUOTE BREAKDOWN</p>
                 </div>
-                {result.quote.items.map((item: any, i: number) => (
-                  <div key={i} style={{ padding: "10px 24px", borderBottom: i < result.quote.items.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 13 }}>{item.isFair === false ? "⚠️" : "✅"}</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{item.description}</span>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: item.isFair === false ? RED : "#334155" }}>${item.cost?.toLocaleString()}</span>
-                      {item.fairPriceRange && (
-                        <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: 6 }}>
-                          (fair: ${item.fairPriceRange.low}–${item.fairPriceRange.high})
-                        </span>
+                {result.quote.items.map((item: any, i: number) => {
+                  const cascade = v.cascadeItems?.[i];
+                  const signalColor = cascade?.signal === 'sell_signal' ? RED : cascade?.signal === 'cascade' ? AMBER : cascade?.signal === 'one_time_fix' ? GREEN : null;
+                  return (
+                    <div key={i} style={{ padding: "10px 24px", borderBottom: i < result.quote.items.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13 }}>{item.isFair === false ? "⚠️" : "✅"}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{item.description}</span>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: item.isFair === false ? RED : "#334155" }}>${item.cost?.toLocaleString()}</span>
+                          {item.fairPriceRange && (
+                            <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: 6 }}>
+                              (fair: ${item.fairPriceRange.low}–${item.fairPriceRange.high})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {cascade && cascade.signal !== 'neutral' && (
+                        <p style={{ fontSize: 11, color: signalColor || "#64748B", margin: "4px 0 0 21px", lineHeight: 1.4 }}>{cascade.note}</p>
                       )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Sell estimates by channel */}
+            {se?.estimates?.length > 0 && (
+              <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
+                <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
+                  <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>IF YOU SELL — WHAT TO EXPECT</p>
+                </div>
+                {se.estimates.map((ch: any, i: number) => (
+                  <div key={i} style={{ padding: "12px 24px", borderBottom: i < se.estimates.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 14 }}>{ch.emoji}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#0D1C2E" }}>{ch.label}</span>
+                        {ch.channel === se.bestChannel && (
+                          <span style={{ fontSize: 9, fontWeight: 800, background: "#DCFCE7", color: GREEN, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>Best price</span>
+                        )}
+                      </div>
+                      <p style={{ fontSize: 11, color: "#94A3B8", margin: "2px 0 0", lineHeight: 1.3 }}>{ch.note}</p>
+                    </div>
+                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <p style={{ fontSize: 15, fontWeight: 800, color: "#0D1C2E", margin: 0 }}>${ch.low?.toLocaleString()}–${ch.high?.toLocaleString()}</p>
+                      <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>{ch.timeframe} · {ch.effort} effort</p>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Replacement cost comparison */}
+            {rp && (
+              <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16, background: rp.verdict === 'repair_cheaper' ? "#F0FDF4" : rp.verdict === 'sell_cheaper' ? "#FEF2F2" : "#F8FAFC", borderColor: rp.verdict === 'repair_cheaper' ? "#BBF7D0" : rp.verdict === 'sell_cheaper' ? "#FECACA" : "#E2E8F0" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: rp.verdict === 'repair_cheaper' ? GREEN : rp.verdict === 'sell_cheaper' ? RED : "#64748B", margin: "0 0 8px", textTransform: "uppercase" }}>🔄 FIX VS. SWITCH — THE REAL MATH</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div style={{ padding: 12, background: "rgba(255,255,255,0.7)", borderRadius: 12, textAlign: "center" }}>
+                    <p style={{ fontSize: 9, fontWeight: 800, color: "#94A3B8", margin: "0 0 2px", textTransform: "uppercase" }}>Cost to fix</p>
+                    <p style={{ fontSize: 20, fontWeight: 900, color: GREEN, margin: 0 }}>${v.repairCost?.toLocaleString()}</p>
+                  </div>
+                  <div style={{ padding: 12, background: "rgba(255,255,255,0.7)", borderRadius: 12, textAlign: "center" }}>
+                    <p style={{ fontSize: 9, fontWeight: 800, color: "#94A3B8", margin: "0 0 2px", textTransform: "uppercase" }}>Cost to switch</p>
+                    <p style={{ fontSize: 20, fontWeight: 900, color: RED, margin: 0 }}>${rp.switchingCost?.toLocaleString()}</p>
+                  </div>
+                </div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#334155", lineHeight: 1.6, margin: 0 }}>{rp.summary}</p>
+                <p style={{ fontSize: 11, color: "#94A3B8", margin: "6px 0 0" }}>Switching cost = comparable replacement (~${rp.replacementCost?.toLocaleString()}) – what you'd sell for (~${rp.sellBestMid?.toLocaleString()}) + taxes/fees (~$1,500).</p>
               </div>
             )}
 
@@ -333,7 +406,7 @@ export default function FixOrSellPage() {
                 <div style={{ borderTop: "1px solid #E2E8F0", padding: 16 }}>
                   {chatMessages.length === 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                      {["What if I keep it 2 more years?", "Is the repair price fair?", "What else might break soon?"].map(q => (
+                      {["What if I keep it 2 more years?", "Is the repair price fair?", "What else might break soon?", "Where should I sell?"].map(q => (
                         <button key={q} onClick={() => { setChatInput(q); }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer" }}>{q}</button>
                       ))}
                     </div>
