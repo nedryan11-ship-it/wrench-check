@@ -2917,43 +2917,26 @@ export default function HuntLobbyPage() {
                               </div>
                             </div>
                           </div>
-                          {/* Actions: Pass / Watch / Add to Radar */}
+                          {/* Actions: View / Pass / Watch */}
                           <div style={{ display: 'flex', borderTop: `1px solid ${BORDER}` }}>
                             <a href={lead.listing_url} target="_blank" rel="noopener noreferrer"
                               style={{ flex: 1, padding: '9px 10px', background: BG, fontSize: 11, fontWeight: 700, color: TEXT2, textDecoration: 'none', textAlign: 'center', borderRight: `1px solid ${BORDER}` }}>
                               View ↗
                             </a>
-                            {/* Pass — dismisses, resurfaces on next run */}
+                            {/* Pass — permanently dismissed */}
                             <button
-                              disabled={!!addingLeadIds[lead.id]}
                               onClick={() => dismissLead(lead.id)}
-                              style={{ flex: 1, padding: '9px 10px', background: '#FEF2F2', fontSize: 11, fontWeight: 700, color: '#DC2626', cursor: 'pointer', border: 'none', borderRight: `1px solid ${BORDER}`, opacity: addingLeadIds[lead.id] ? 0.4 : 1 }}
-                              title="Dismiss for now — will resurface on next scan if still available">
+                              style={{ flex: 1, padding: '9px 10px', background: '#FEF2F2', fontSize: 11, fontWeight: 700, color: '#DC2626', cursor: 'pointer', border: 'none', borderRight: `1px solid ${BORDER}` }}
+                              title="Permanently dismiss — you won't see this listing again">
                               ✕ Pass
                             </button>
                             {/* Watch — keeps in inbox, tracks price changes */}
                             <button
-                              disabled={!!addingLeadIds[lead.id] || lead.status === 'watching'}
+                              disabled={lead.status === 'watching'}
                               onClick={() => watchLead(lead.id)}
-                              style={{ flex: 1, padding: '9px 10px', background: lead.status === 'watching' ? '#EFF6FF' : '#F8FAFC', fontSize: 11, fontWeight: 700, color: lead.status === 'watching' ? '#1D4ED8' : TEXT2, cursor: lead.status === 'watching' ? 'default' : 'pointer', border: 'none', borderRight: `1px solid ${BORDER}`, opacity: addingLeadIds[lead.id] ? 0.4 : 1 }}
-                              title="Keep in inbox and monitor for price drops">
+                              style={{ flex: 1.4, padding: '9px 10px', background: lead.status === 'watching' ? '#EFF6FF' : '#DCFCE7', fontSize: 11, fontWeight: 700, color: lead.status === 'watching' ? '#1D4ED8' : '#15803D', cursor: lead.status === 'watching' ? 'default' : 'pointer', border: 'none' }}
+                              title="Keep tracking — monitor for price drops">
                               {lead.status === 'watching' ? '👁 Watching' : '👁 Watch'}
-                            </button>
-                            {/* Add to Radar — full AI audit */}
-                            <button
-                              disabled={!!addingLeadIds[lead.id]}
-                              onClick={() => addLeadToHunt(lead)}
-                              style={{
-                                flex: 1.4, padding: '9px 10px', border: 'none', fontSize: 11, fontWeight: 700, cursor: addingLeadIds[lead.id] ? 'default' : 'pointer',
-                                background: addingLeadIds[lead.id] === 'done' ? '#DCFCE7' : addingLeadIds[lead.id] === 'error' ? '#FEF2F2' : addingLeadIds[lead.id] === 'adding' ? '#EEF2FF' : '#DCFCE7',
-                                color: addingLeadIds[lead.id] === 'done' ? '#15803D' : addingLeadIds[lead.id] === 'error' ? '#DC2626' : addingLeadIds[lead.id] === 'adding' ? '#4F46E5' : '#15803D',
-                                transition: 'all 0.2s',
-                              }}
-                              title="Run full AI audit and add to your Radar">
-                              {addingLeadIds[lead.id] === 'adding' && <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 4 }}>⟳</span>Analyzing…</>}
-                              {addingLeadIds[lead.id] === 'done' && '✓ Added!'}
-                              {addingLeadIds[lead.id] === 'error' && '⚠ Retry?'}
-                              {!addingLeadIds[lead.id] && '⭐ Add to Radar'}
                             </button>
                           </div>
                         </div>
