@@ -250,7 +250,7 @@ export default function HuntLobbyPage() {
   // ── Tag Filters ──
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   // ── View Tabs: Radar vs Inbox ──
-  const [viewTab, setViewTab] = useState<'board' | 'advisor'>('board');
+  const [viewTab, setViewTab] = useState<'board' | 'inbox' | 'advisor'>('board');
   const [scoutRunning, setScoutRunning] = useState(false);
   const [scoutResult, setScoutResult] = useState<{inserted:number;refreshed?:number;total:number;market_mid:number} | null>(null);
   // Per-lead add state: leadId → 'adding' | 'done' | 'error'
@@ -1634,7 +1634,7 @@ export default function HuntLobbyPage() {
         )}
 
         {/* LOBBY / EMPTY STATE */}
-        {vehicles.length === 0 && viewTab === 'board' ? (
+        {vehicles.length === 0 && viewTab === 'board' && scoutLeads.length === 0 ? (
           <div style={{ textAlign: "center", maxWidth: 600, margin: "0 auto", animation: "fadeIn 0.5s ease" }}>
             <div style={{ display: "inline-block", padding: "6px 14px", background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 99, color: "#4F46E5", fontWeight: 700, fontSize: 12, letterSpacing: "0.08em", marginBottom: 24 }}>
               GAUNTLET — MULTI-CAR COMPARISON
@@ -1748,11 +1748,16 @@ export default function HuntLobbyPage() {
                 </div>
               </div>
 
-              {/* ── BOARD / ADVISOR TABS ──────────────────────────────── */}
+              {/* ── BOARD / INBOX / ADVISOR TABS ─────────────────────── */}
               <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: '#F1F5F9', padding: 4, borderRadius: 12, width: 'fit-content' }}>
                 <button onClick={() => setViewTab('board')}
                   style={{ padding: '8px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: 'none', background: viewTab === 'board' ? '#fff' : 'transparent', color: viewTab === 'board' ? TEXT1 : TEXT3, boxShadow: viewTab === 'board' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
                   📋 Board <span style={{ fontWeight: 600, opacity: 0.6 }}>({vehicles.length})</span>
+                </button>
+                <button onClick={() => setViewTab('inbox')}
+                  style={{ padding: '8px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: 'none', background: viewTab === 'inbox' ? '#fff' : 'transparent', color: viewTab === 'inbox' ? '#EA580C' : TEXT3, boxShadow: viewTab === 'inbox' ? '0 1px 4px rgba(234,88,12,0.12)' : 'none', transition: 'all 0.15s' }}>
+                  📥 Inbox
+                  {scoutLeads.length > 0 && <span style={{ marginLeft: 6, fontSize: 9, background: '#EA580C', color: '#fff', borderRadius: 99, padding: '1px 6px', fontWeight: 800 }}>{scoutLeads.length}</span>}
                 </button>
                 <button onClick={() => setViewTab('advisor')}
                   style={{ padding: '8px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: 'none', background: viewTab === 'advisor' ? '#fff' : 'transparent', color: viewTab === 'advisor' ? '#4F46E5' : TEXT3, boxShadow: viewTab === 'advisor' ? '0 1px 4px rgba(79,70,229,0.12)' : 'none', transition: 'all 0.15s' }}>
@@ -2760,8 +2765,12 @@ export default function HuntLobbyPage() {
                 })()}</>
               )}
 
-            {/* ── INBOX SECTION (integrated into Board) ──────────────── */}
-            {viewTab === 'board' && scoutLeads.length > 0 && (
+            </div>
+            </div>
+            )} {/* end viewTab === 'board' */}
+
+            {/* ── INBOX TAB ─────────────────────────────────────────────── */}
+            {viewTab === 'inbox' && (
               <div ref={inboxRef} style={{ marginTop: 16 }}>
                 {/* -- Scout Control Header -- */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, padding: '14px 18px', background: '#F8FAFF', borderRadius: 12, border: '1px solid #E0E7FF' }}>
@@ -2778,10 +2787,9 @@ export default function HuntLobbyPage() {
                       setScoutRunning(true);
                       setScoutResult(null);
                       try {
-                        const res = await fetch('/api/scout/marketcheck-run', { method: 'POST' });
+                        const res = await fetch('/api/cron/scout-run?key=' + (process.env.NEXT_PUBLIC_CRON_SECRET || '08cecf9aa65e6b9848891fc8ffa7d65bbd0ca3f24d5968f7d33343d0a1c495ec'));
                         const data = await res.json();
-                        if (data.inserted !== undefined) {
-                           setScoutResult({ inserted: data.inserted, refreshed: data.refreshed, total: data.total_found, market_mid: data.market_mid });
+                        if (data.success) {
                            await fetchScoutLeads();
                          }
                       } catch {}
@@ -2954,10 +2962,7 @@ export default function HuntLobbyPage() {
                   </div>
                 )}
               </div>
-            )}
-            </div>
-            </div>
-            )} {/* end viewTab === 'board' */}
+            )} {/* end viewTab === 'inbox' */}
             {/* ── ADVISOR TAB ──────────────────────────────────────────────── */}
             {viewTab === 'advisor' && (
               <AdvisorPanel
