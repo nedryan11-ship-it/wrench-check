@@ -129,10 +129,35 @@ export default function FixOrSellPage() {
   const GREEN = "#16A34A";
   const RED = "#DC2626";
   const AMBER = "#D97706";
+  const BLUE = "#0369A1";
 
-  const decisionColor = (d: string) => d === "fix" ? GREEN : d === "sell" ? RED : AMBER;
-  const decisionEmoji = (d: string) => d === "fix" ? "🟢" : d === "sell" ? "🔴" : "🟡";
-  const decisionLabel = (d: string) => d === "fix" ? "FIX IT" : d === "sell" ? "SELL" : "CLOSE CALL";
+  const decisionColor = (d: string) => {
+    if (d === 'likely_fix' || d === 'leaning_fix') return GREEN;
+    if (d === 'likely_sell' || d === 'leaning_sell') return RED;
+    if (d === 'needs_context') return BLUE;
+    return AMBER;
+  };
+  const decisionEmoji = (d: string) => {
+    if (d === 'likely_fix') return "🟢";
+    if (d === 'leaning_fix') return "🟢";
+    if (d === 'likely_sell') return "🔴";
+    if (d === 'leaning_sell') return "🟠";
+    if (d === 'needs_context') return "🔵";
+    return "🟡";
+  };
+  const decisionLabel = (d: string) => {
+    if (d === 'likely_fix') return "LIKELY WORTH FIXING";
+    if (d === 'leaning_fix') return "LEANING FIX";
+    if (d === 'likely_sell') return "LIKELY BETTER TO SELL";
+    if (d === 'leaning_sell') return "LEANING SELL";
+    if (d === 'needs_context') return "NEED MORE CONTEXT";
+    return "BORDERLINE";
+  };
+  const confBadge = (c: string) => ({
+    bg: c === 'high' ? '#DCFCE7' : c === 'medium' ? '#FEF3C7' : '#FEE2E2',
+    color: c === 'high' ? GREEN : c === 'medium' ? AMBER : RED,
+    label: c === 'high' ? 'High confidence' : c === 'medium' ? 'Medium confidence' : 'Low confidence',
+  });
 
   return (
     <div style={{ minHeight: "100vh", background: "#F8F9FF", fontFamily: "'Inter', system-ui, sans-serif" }}>
@@ -257,7 +282,7 @@ export default function FixOrSellPage() {
           </div>
         )}
 
-        {/* ── VERDICT ─────────────────────────────────────────────────── */}
+        {/* ── VERDICT (Advisor Mode) ──────────────────────────────── */}
         {step === "verdict" && result && (() => {
           const v = result.verdict;
           const dc = decisionColor(v.decision);
@@ -266,10 +291,12 @@ export default function FixOrSellPage() {
           const ai = result.archetypeInfo;
           const vc = result.valuationConfidence;
           const isNonCommodity = ai && ai.archetype !== 'commodity';
+          const cb = confBadge(v.confidence);
+
           return (<>
             {/* Archetype badge */}
             {isNonCommodity && ai && (
-              <div style={{ textAlign: "center", marginBottom: 12 }}>
+              <div style={{ textAlign: "center", marginBottom: 8 }}>
                 <span style={{ display: "inline-block", padding: "4px 14px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 99, fontSize: 11, fontWeight: 800, color: "#1E40AF", letterSpacing: "0.05em" }}>
                   {ai.emoji} {ai.label.toUpperCase()}
                 </span>
@@ -279,14 +306,22 @@ export default function FixOrSellPage() {
             {/* Headline card */}
             <div className="fos-card" style={{ padding: "32px 28px", textAlign: "center", borderLeft: `4px solid ${dc}` }}>
               <div style={{ fontSize: 40, marginBottom: 8 }}>{decisionEmoji(v.decision)}</div>
-              <h2 style={{ fontSize: 32, fontWeight: 900, color: dc, letterSpacing: "-0.03em", margin: "0 0 6px" }}>{decisionLabel(v.decision)}</h2>
-              <p style={{ fontSize: 15, fontWeight: 600, color: "#475569", margin: 0 }}>{v.headline}</p>
+              <h2 style={{ fontSize: 26, fontWeight: 900, color: dc, letterSpacing: "-0.03em", margin: "0 0 6px" }}>{decisionLabel(v.decision)}</h2>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#475569", margin: "0 0 10px" }}>{v.headline}</p>
+              <span style={{ display: "inline-block", padding: "4px 12px", background: cb.bg, color: cb.color, borderRadius: 99, fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                {cb.label}
+              </span>
+            </div>
+
+            {/* Subheadline */}
+            <div className="fos-card" style={{ padding: "14px 24px", marginTop: 12, background: "#F8FAFC", borderColor: "#E2E8F0" }}>
+              <p style={{ fontSize: 12, color: "#64748B", lineHeight: 1.6, margin: 0, textAlign: "center", fontStyle: "italic" }}>{v.subheadline}</p>
             </div>
 
             {/* Key numbers */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 16 }}>
               {[
-                ["CAR VALUE", `~$${v.vehicleValue?.toLocaleString()}`, "#64748B"],
+                ["VEHICLE VALUE", `~$${Math.round(v.vehicleValue || 0).toLocaleString()}`, "#64748B"],
                 ["REPAIR COST", `$${Math.round(v.repairCost || 0).toLocaleString()}`, dc],
                 ["REPAIR RATIO", `${v.repairRatio}%`, dc],
               ].map(([label, val, color]) => (
@@ -300,7 +335,7 @@ export default function FixOrSellPage() {
             {/* Valuation confidence warning */}
             {vc && vc.confidence === 'low' && (
               <div className="fos-card" style={{ padding: "14px 24px", marginTop: 16, background: "#FEF3C7", borderColor: "#FDE68A" }}>
-                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: AMBER, margin: "0 0 4px", textTransform: "uppercase" }}>⚠️ LOW VALUATION CONFIDENCE</p>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: AMBER, margin: "0 0 4px", textTransform: "uppercase" }}>⚠️ LIMITED VALUATION DATA</p>
                 <p style={{ fontSize: 12, fontWeight: 600, color: "#92400E", lineHeight: 1.5, margin: 0 }}>{vc.note}</p>
               </div>
             )}
@@ -310,13 +345,28 @@ export default function FixOrSellPage() {
               <p style={{ fontSize: 14, color: "#334155", lineHeight: 1.7, margin: 0 }}>{v.explanation}</p>
             </div>
 
-            {/* What I'd Do */}
+            {/* Initial Recommendation */}
             <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16, background: `${dc}08`, borderColor: `${dc}30` }}>
-              <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: dc, margin: "0 0 6px", textTransform: "uppercase" }}>WHAT I'D DO</p>
+              <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: dc, margin: "0 0 6px", textTransform: "uppercase" }}>INITIAL RECOMMENDATION</p>
               <p style={{ fontSize: 14, fontWeight: 600, color: "#0D1C2E", lineHeight: 1.6, margin: 0 }}>{v.recommendation}</p>
             </div>
 
-            {/* Negotiated pricing */}
+            {/* WHAT COULD CHANGE */}
+            {v.whatCouldChange?.length > 0 && (
+              <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16, background: "#F0F9FF", borderColor: "#BAE6FD" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: BLUE, margin: "0 0 10px", textTransform: "uppercase" }}>🔄 WHAT COULD CHANGE THIS RECOMMENDATION</p>
+                <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+                  {v.whatCouldChange.map((f: string, i: number) => (
+                    <li key={i} style={{ fontSize: 13, fontWeight: 500, color: "#334155", lineHeight: 1.7, padding: "3px 0", paddingLeft: 18, position: "relative" }}>
+                      <span style={{ position: "absolute", left: 0, color: BLUE, fontWeight: 800 }}>•</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Negotiate */}
             {v.negotiated && (
               <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: "#FFFBEB", borderColor: "#FDE68A" }}>
                 <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: AMBER, margin: "0 0 6px", textTransform: "uppercase" }}>💰 NEGOTIATE FIRST</p>
@@ -324,7 +374,7 @@ export default function FixOrSellPage() {
               </div>
             )}
 
-            {/* Cascade / Mechanical intelligence */}
+            {/* Mechanical intelligence */}
             {v.cascadeSummary && !v.cascadeSummary.includes("No unusual") && !v.cascadeSummary.includes("standard maintenance") && (
               <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: isNonCommodity ? "#F0F9FF" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FEF2F2" : "#F0F9FF", borderColor: isNonCommodity ? "#BAE6FD" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FECACA" : "#BAE6FD" }}>
                 <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: isNonCommodity ? "#0369A1" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? RED : "#0369A1", margin: "0 0 6px", textTransform: "uppercase" }}>{ai?.emoji || "🔍"} MECHANICAL INTELLIGENCE</p>
@@ -332,27 +382,44 @@ export default function FixOrSellPage() {
               </div>
             )}
 
-            {/* Quote breakdown */}
-            {result.quote?.items?.length > 0 && (
+            {/* REPLACEMENT RISK */}
+            {v.replacementRisk && (
+              <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16, background: "#FEFCE8", borderColor: "#FDE68A" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#A16207", margin: "0 0 8px", textTransform: "uppercase" }}>⚠️ REPLACEMENT REALITY CHECK</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#713F12", lineHeight: 1.6, margin: "0 0 10px" }}>{v.replacementRisk.summary}</p>
+                <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
+                  {v.replacementRisk.factors.map((f: string, i: number) => (
+                    <li key={i} style={{ fontSize: 12, color: "#92400E", lineHeight: 1.6, padding: "2px 0", paddingLeft: 18, position: "relative" }}>
+                      <span style={{ position: "absolute", left: 0 }}>•</span>{f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* QUOTE BREAKDOWN (Tiered) */}
+            {v.tieredItems?.length > 0 && (
               <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
                 <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
                   <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>QUOTE BREAKDOWN</p>
                 </div>
-                {result.quote.items.map((item: any, i: number) => {
+                {v.tieredItems.map((item: any, i: number) => {
                   const cascade = v.cascadeItems?.[i];
                   const signalColor = cascade?.signal === 'sell_signal' ? RED : cascade?.signal === 'cascade' ? AMBER : cascade?.signal === 'watch' ? AMBER : cascade?.signal === 'one_time_fix' ? GREEN : null;
+                  const tierColor = item.tier === 'decision_driving' ? '#DC2626' : item.tier === 'cosmetic' ? '#94A3B8' : '#64748B';
                   return (
-                    <div key={i} style={{ padding: "10px 24px", borderBottom: i < result.quote.items.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                    <div key={i} style={{ padding: "10px 24px", borderBottom: i < v.tieredItems.length - 1 ? "1px solid #F1F5F9" : "none" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 13 }}>{item.isFair === false ? "⚠️" : "✅"}</span>
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{item.description}</span>
+                          <span style={{ fontSize: 8, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: `${tierColor}15`, color: tierColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>{item.tierLabel}</span>
                         </div>
-                        <div style={{ textAlign: "right" }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: item.isFair === false ? RED : "#334155" }}>${Math.round(item.cost || 0).toLocaleString()}</span>
+                        <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: item.isFair === false ? RED : "#334155" }}>${Math.round(item.cost).toLocaleString()}</span>
                           {item.fairPriceRange && (
                             <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: 6 }}>
-                              (fair: ${Math.round(item.fairPriceRange.low)}–${Math.round(item.fairPriceRange.high)})
+                              (fair: ${item.fairPriceRange.low}–${item.fairPriceRange.high})
                             </span>
                           )}
                         </div>
@@ -366,35 +433,14 @@ export default function FixOrSellPage() {
               </div>
             )}
 
-            {/* Market comps */}
-            {comps.length > 0 && (
-              <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
-                <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
-                  <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>📊 MARKET COMPS — SIMILAR VEHICLES FOR SALE NOW</p>
-                </div>
-                {comps.map((comp: any, i: number) => (
-                  <div key={i} style={{ padding: "10px 24px", borderBottom: i < comps.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: "#0D1C2E", margin: 0 }}>{comp.heading}</p>
-                      <p style={{ fontSize: 11, color: "#94A3B8", margin: "2px 0 0" }}>{comp.miles?.toLocaleString()} mi · {comp.city}, {comp.state}</p>
-                    </div>
-                    <p style={{ fontSize: 15, fontWeight: 800, color: "#0D1C2E", margin: 0, whiteSpace: "nowrap" }}>${comp.price?.toLocaleString()}</p>
-                  </div>
-                ))}
-                <div style={{ padding: "8px 24px", background: "#F8FAFC" }}>
-                  <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>Dealer asking prices for comparable running vehicles. Private party values are typically 10-15% lower.</p>
-                </div>
-              </div>
-            )}
-
-            {/* Sell estimates by channel */}
+            {/* SELL CHANNELS */}
             {se?.estimates?.length > 0 && (
               <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
                 <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
                   <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>IF YOU SELL — WHAT TO EXPECT</p>
                 </div>
                 {se.estimates.map((ch: any, i: number) => (
-                  <div key={i} style={{ padding: "12px 24px", borderBottom: i < se.estimates.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: ch.available === false ? 0.45 : 1 }}>
+                  <div key={i} style={{ padding: "12px 24px", borderBottom: i < se.estimates.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: ch.available === false ? 0.5 : 1 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 14 }}>{ch.emoji}</span>
@@ -403,7 +449,7 @@ export default function FixOrSellPage() {
                           <span style={{ fontSize: 9, fontWeight: 800, background: "#DCFCE7", color: GREEN, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>Best price</span>
                         )}
                         {ch.available === false && (
-                          <span style={{ fontSize: 9, fontWeight: 800, background: "#FEF2F2", color: RED, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>N/A</span>
+                          <span style={{ fontSize: 9, fontWeight: 800, background: "#FEE2E2", color: RED, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>N/A</span>
                         )}
                       </div>
                       <p style={{ fontSize: 11, color: "#94A3B8", margin: "2px 0 0", lineHeight: 1.3 }}>{ch.note}</p>
@@ -419,39 +465,61 @@ export default function FixOrSellPage() {
               </div>
             )}
 
-            {/* Confidence note */}
+            {/* MARKET COMPS */}
+            {comps.length > 0 && (
+              <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
+                <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
+                  <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>COMPARABLE LISTINGS ({comps.length})</p>
+                </div>
+                {comps.map((c: any, i: number) => (
+                  <div key={i} style={{ padding: "10px 24px", borderBottom: i < comps.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: "#334155", margin: 0 }}>{c.heading?.slice(0, 40)}</p>
+                      <p style={{ fontSize: 10, color: "#94A3B8", margin: "2px 0 0" }}>{c.miles?.toLocaleString()} mi · {c.city}, {c.state}</p>
+                    </div>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: "#0D1C2E", margin: 0 }}>${c.price?.toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <p style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", marginTop: 12 }}>{v.confidenceNote}</p>
 
-            {/* Chat */}
-            <div className="fos-card" style={{ marginTop: 20, overflow: "hidden" }}>
-              <button onClick={() => setChatOpen(!chatOpen)} style={{ width: "100%", padding: "14px 24px", border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 18 }}>💬</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: BRAND }}>Have questions? Ask the advisor.</span>
-                <span style={{ marginLeft: "auto", fontSize: 12, color: "#94A3B8" }}>{chatOpen ? "▲" : "▼"}</span>
-              </button>
-              {chatOpen && (
-                <div style={{ borderTop: "1px solid #E2E8F0", padding: 16 }}>
-                  {chatMessages.length === 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                      {["What if I keep it 2 more years?", "Is the repair price fair?", "What else might break soon?", "Where should I sell?"].map(q => (
-                        <button key={q} onClick={() => { setChatInput(q); }} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer" }}>{q}</button>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ maxHeight: 300, overflowY: "auto", marginBottom: 12 }}>
-                    {chatMessages.map((m, i) => (
-                      <div key={i} style={{ marginBottom: 8, textAlign: m.role === "user" ? "right" : "left" }}>
-                        <span style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155" }}>{m.content}</span>
-                      </div>
-                    ))}
-                    {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask anything about this repair..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none" }} />
-                    <button className="fos-btn" onClick={sendChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 18px", background: BRAND, color: "#fff", borderRadius: 10, fontSize: 12, fontWeight: 700, opacity: !chatInput.trim() ? 0.4 : 1 }}>Send</button>
+            {/* ── CHAT (PRIMARY — always visible) ─────────────────────── */}
+            <div className="fos-card" style={{ marginTop: 20, overflow: "hidden", border: `2px solid ${BRAND}30` }}>
+              <div style={{ padding: "16px 24px", background: `${BRAND}06`, borderBottom: "1px solid #E2E8F0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 20 }}>💬</span>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: BRAND, margin: 0 }}>Let&apos;s talk through this</p>
+                    <p style={{ fontSize: 11, color: "#64748B", margin: "2px 0 0" }}>Ask questions, share context, and refine your recommendation.</p>
                   </div>
                 </div>
-              )}
+              </div>
+              <div style={{ padding: 16 }}>
+                {chatMessages.length === 0 && v.followUpQuestions?.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#64748B", margin: "0 0 8px" }}>Questions that could refine this recommendation:</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {v.followUpQuestions.map((q: string) => (
+                        <button key={q} onClick={() => setChatInput(q)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer" }}>{q}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ maxHeight: 400, overflowY: "auto", marginBottom: 12 }}>
+                  {chatMessages.map((m, i) => (
+                    <div key={i} style={{ marginBottom: 8, textAlign: m.role === "user" ? "right" : "left" }}>
+                      <span style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155", whiteSpace: "pre-wrap" }}>{m.content}</span>
+                    </div>
+                  ))}
+                  {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask anything about this decision..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none" }} />
+                  <button className="fos-btn" onClick={sendChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 18px", background: BRAND, color: "#fff", borderRadius: 10, fontSize: 12, fontWeight: 700, opacity: !chatInput.trim() ? 0.4 : 1 }}>Send</button>
+                </div>
+              </div>
             </div>
 
             {/* Start over */}

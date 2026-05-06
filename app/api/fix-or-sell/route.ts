@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
       // Non-critical — comps are nice-to-have
     }
 
-    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | archetype=${archetypeResult.archetype} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | valConf=${valConfidence.confidence} | comps=${comps.length}`);
+    console.log(`[fix-or-sell] Verdict: ${verdict.decision} (${verdict.confidence}) | archetype=${archetypeResult.archetype} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | comps=${comps.length}`);
 
     // ── Return complete result ──────────────────────────────────────────────
     return NextResponse.json({
