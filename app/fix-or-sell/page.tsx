@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 type Step = "input" | "vehicle" | "loading" | "verdict";
 
@@ -32,6 +32,22 @@ export default function FixOrSellPage() {
   const [chatMessages, setChatMessages] = useState<{role:string;content:string}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, chatLoading]);
+
+  // Auto-scroll to chat when verdict loads
+  useEffect(() => {
+    if (step === "verdict") {
+      setTimeout(() => {
+        chatContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 300);
+    }
+  }, [step]);
 
   // -- Submit repair quote --------------------------------------------------
   const submit = useCallback(async (overrideFiles?: File[]) => {
@@ -332,23 +348,9 @@ export default function FixOrSellPage() {
               )}
             </div>
 
-            {/* WHAT COULD CHANGE */}
-            {v.whatCouldChange?.length > 0 && (
-              <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16, background: "#F0F9FF", borderColor: "#BAE6FD" }}>
-                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: BLUE, margin: "0 0 10px", textTransform: "uppercase" }}>🔄 WHAT COULD CHANGE THIS RECOMMENDATION</p>
-                <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>
-                  {v.whatCouldChange.map((f: string, i: number) => (
-                    <li key={i} style={{ fontSize: 13, fontWeight: 500, color: "#334155", lineHeight: 1.7, padding: "3px 0", paddingLeft: 18, position: "relative" }}>
-                      <span style={{ position: "absolute", left: 0, color: BLUE, fontWeight: 800 }}>•</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             {/* -- ZONE 2: THE CONVERSATION ------------------------ */}
-            <div className="fos-card" style={{ marginTop: 16, overflow: "hidden", border: `2px solid ${BRAND}20` }}>
+            <div ref={chatContainerRef} className="fos-card" style={{ marginTop: 16, overflow: "hidden", border: `2px solid ${BRAND}20` }}>
               <div style={{ padding: 16 }}>
                 {chatMessages.length === 0 && (
                   <div style={{ marginBottom: 14 }}>
@@ -369,6 +371,7 @@ export default function FixOrSellPage() {
                     </div>
                   ))}
                   {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
+                  <div ref={chatEndRef} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask anything about this decision..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none" }} />
