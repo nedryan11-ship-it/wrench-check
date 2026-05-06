@@ -262,8 +262,17 @@ export default function FixOrSellPage() {
           const v = result.verdict;
           const dc = decisionColor(v.decision);
           const se = result.sellEstimates;
-          const rp = result.replacement;
+          const comps = result.comps || [];
           return (<>
+            {/* Enthusiast badge */}
+            {v.isEnthusiast && (
+              <div style={{ textAlign: "center", marginBottom: 12 }}>
+                <span style={{ display: "inline-block", padding: "4px 14px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 99, fontSize: 11, fontWeight: 800, color: "#1E40AF", letterSpacing: "0.05em" }}>
+                  🏔️ ENTHUSIAST / COLLECTOR VEHICLE
+                </span>
+              </div>
+            )}
+
             {/* Headline card */}
             <div className="fos-card" style={{ padding: "32px 28px", textAlign: "center", borderLeft: `4px solid ${dc}` }}>
               <div style={{ fontSize: 40, marginBottom: 8 }}>{decisionEmoji(v.decision)}</div>
@@ -275,7 +284,7 @@ export default function FixOrSellPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 16 }}>
               {[
                 ["CAR VALUE", `~$${v.vehicleValue?.toLocaleString()}`, "#64748B"],
-                ["REPAIR COST", `$${v.repairCost?.toLocaleString()}`, dc],
+                ["REPAIR COST", `$${Math.round(v.repairCost || 0).toLocaleString()}`, dc],
                 ["REPAIR RATIO", `${v.repairRatio}%`, dc],
               ].map(([label, val, color]) => (
                 <div key={label as string} className="fos-card" style={{ padding: "16px 12px", textAlign: "center" }}>
@@ -304,10 +313,10 @@ export default function FixOrSellPage() {
               </div>
             )}
 
-            {/* Cascade intelligence */}
+            {/* Cascade / Mechanical intelligence */}
             {v.cascadeSummary && !v.cascadeSummary.includes("No unusual") && !v.cascadeSummary.includes("standard maintenance") && (
-              <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FEF2F2" : "#F0F9FF", borderColor: v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FECACA" : "#BAE6FD" }}>
-                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? RED : "#0369A1", margin: "0 0 6px", textTransform: "uppercase" }}>🔍 MECHANICAL INTELLIGENCE</p>
+              <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: v.isEnthusiast ? "#F0F9FF" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FEF2F2" : "#F0F9FF", borderColor: v.isEnthusiast ? "#BAE6FD" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FECACA" : "#BAE6FD" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: v.isEnthusiast ? "#0369A1" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? RED : "#0369A1", margin: "0 0 6px", textTransform: "uppercase" }}>{v.isEnthusiast ? "🏔️" : "🔍"} MECHANICAL INTELLIGENCE</p>
                 <p style={{ fontSize: 13, fontWeight: 600, color: "#334155", lineHeight: 1.6, margin: 0 }}>{v.cascadeSummary}</p>
               </div>
             )}
@@ -320,7 +329,7 @@ export default function FixOrSellPage() {
                 </div>
                 {result.quote.items.map((item: any, i: number) => {
                   const cascade = v.cascadeItems?.[i];
-                  const signalColor = cascade?.signal === 'sell_signal' ? RED : cascade?.signal === 'cascade' ? AMBER : cascade?.signal === 'one_time_fix' ? GREEN : null;
+                  const signalColor = cascade?.signal === 'sell_signal' ? RED : cascade?.signal === 'cascade' ? AMBER : cascade?.signal === 'watch' ? AMBER : cascade?.signal === 'one_time_fix' ? GREEN : null;
                   return (
                     <div key={i} style={{ padding: "10px 24px", borderBottom: i < result.quote.items.length - 1 ? "1px solid #F1F5F9" : "none" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -329,10 +338,10 @@ export default function FixOrSellPage() {
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{item.description}</span>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: item.isFair === false ? RED : "#334155" }}>${item.cost?.toLocaleString()}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: item.isFair === false ? RED : "#334155" }}>${Math.round(item.cost || 0).toLocaleString()}</span>
                           {item.fairPriceRange && (
                             <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: 6 }}>
-                              (fair: ${item.fairPriceRange.low}–${item.fairPriceRange.high})
+                              (fair: ${Math.round(item.fairPriceRange.low)}–${Math.round(item.fairPriceRange.high)})
                             </span>
                           )}
                         </div>
@@ -346,6 +355,27 @@ export default function FixOrSellPage() {
               </div>
             )}
 
+            {/* Market comps */}
+            {comps.length > 0 && (
+              <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
+                <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
+                  <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>📊 MARKET COMPS — SIMILAR VEHICLES FOR SALE NOW</p>
+                </div>
+                {comps.map((comp: any, i: number) => (
+                  <div key={i} style={{ padding: "10px 24px", borderBottom: i < comps.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "#0D1C2E", margin: 0 }}>{comp.heading}</p>
+                      <p style={{ fontSize: 11, color: "#94A3B8", margin: "2px 0 0" }}>{comp.miles?.toLocaleString()} mi · {comp.city}, {comp.state}</p>
+                    </div>
+                    <p style={{ fontSize: 15, fontWeight: 800, color: "#0D1C2E", margin: 0, whiteSpace: "nowrap" }}>${comp.price?.toLocaleString()}</p>
+                  </div>
+                ))}
+                <div style={{ padding: "8px 24px", background: "#F8FAFC" }}>
+                  <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>Dealer asking prices for comparable running vehicles. Private party values are typically 10-15% lower.</p>
+                </div>
+              </div>
+            )}
+
             {/* Sell estimates by channel */}
             {se?.estimates?.length > 0 && (
               <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
@@ -353,42 +383,28 @@ export default function FixOrSellPage() {
                   <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>IF YOU SELL — WHAT TO EXPECT</p>
                 </div>
                 {se.estimates.map((ch: any, i: number) => (
-                  <div key={i} style={{ padding: "12px 24px", borderBottom: i < se.estimates.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div key={i} style={{ padding: "12px 24px", borderBottom: i < se.estimates.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: ch.available === false ? 0.45 : 1 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 14 }}>{ch.emoji}</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: "#0D1C2E" }}>{ch.label}</span>
-                        {ch.channel === se.bestChannel && (
+                        {ch.available !== false && ch.channel === se.bestChannel && (
                           <span style={{ fontSize: 9, fontWeight: 800, background: "#DCFCE7", color: GREEN, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>Best price</span>
+                        )}
+                        {ch.available === false && (
+                          <span style={{ fontSize: 9, fontWeight: 800, background: "#FEF2F2", color: RED, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>N/A</span>
                         )}
                       </div>
                       <p style={{ fontSize: 11, color: "#94A3B8", margin: "2px 0 0", lineHeight: 1.3 }}>{ch.note}</p>
                     </div>
-                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <p style={{ fontSize: 15, fontWeight: 800, color: "#0D1C2E", margin: 0 }}>${ch.low?.toLocaleString()}–${ch.high?.toLocaleString()}</p>
-                      <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>{ch.timeframe} · {ch.effort} effort</p>
-                    </div>
+                    {ch.available !== false && (
+                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <p style={{ fontSize: 15, fontWeight: 800, color: "#0D1C2E", margin: 0 }}>${ch.low?.toLocaleString()}–${ch.high?.toLocaleString()}</p>
+                        <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>{ch.timeframe} · {ch.effort} effort</p>
+                      </div>
+                    )}
                   </div>
                 ))}
-              </div>
-            )}
-
-            {/* Replacement cost comparison */}
-            {rp && (
-              <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16, background: rp.verdict === 'repair_cheaper' ? "#F0FDF4" : rp.verdict === 'sell_cheaper' ? "#FEF2F2" : "#F8FAFC", borderColor: rp.verdict === 'repair_cheaper' ? "#BBF7D0" : rp.verdict === 'sell_cheaper' ? "#FECACA" : "#E2E8F0" }}>
-                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: rp.verdict === 'repair_cheaper' ? GREEN : rp.verdict === 'sell_cheaper' ? RED : "#64748B", margin: "0 0 8px", textTransform: "uppercase" }}>🔄 FIX VS. SWITCH — THE REAL MATH</p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                  <div style={{ padding: 12, background: "rgba(255,255,255,0.7)", borderRadius: 12, textAlign: "center" }}>
-                    <p style={{ fontSize: 9, fontWeight: 800, color: "#94A3B8", margin: "0 0 2px", textTransform: "uppercase" }}>Cost to fix</p>
-                    <p style={{ fontSize: 20, fontWeight: 900, color: GREEN, margin: 0 }}>${v.repairCost?.toLocaleString()}</p>
-                  </div>
-                  <div style={{ padding: 12, background: "rgba(255,255,255,0.7)", borderRadius: 12, textAlign: "center" }}>
-                    <p style={{ fontSize: 9, fontWeight: 800, color: "#94A3B8", margin: "0 0 2px", textTransform: "uppercase" }}>Cost to switch</p>
-                    <p style={{ fontSize: 20, fontWeight: 900, color: RED, margin: 0 }}>${rp.switchingCost?.toLocaleString()}</p>
-                  </div>
-                </div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: "#334155", lineHeight: 1.6, margin: 0 }}>{rp.summary}</p>
-                <p style={{ fontSize: 11, color: "#94A3B8", margin: "6px 0 0" }}>Switching cost = comparable replacement (~${rp.replacementCost?.toLocaleString()}) – what you'd sell for (~${rp.sellBestMid?.toLocaleString()}) + taxes/fees (~$1,500).</p>
               </div>
             )}
 
@@ -435,6 +451,8 @@ export default function FixOrSellPage() {
             </div>
           </>);
         })()}
+
+
       </main>
     </div>
   );

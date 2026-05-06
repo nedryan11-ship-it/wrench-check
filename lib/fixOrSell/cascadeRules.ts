@@ -3,6 +3,40 @@
 // "Once you see X, expect Y" — based on real mechanical patterns, NOT LLM.
 //
 // Each repair item gets tagged with a cascade signal that adjusts the verdict.
+// V3: Enthusiast/collector vehicles get softened cascade signals because
+// drivetrain rebuilds on these platforms are restoration, not decline.
+
+// ── Enthusiast vehicle registry ──────────────────────────────────────────────
+// These vehicles appreciate or hold value. A transmission rebuild is an
+// investment, not a death sentence.
+const ENTHUSIAST_MODELS: { make: string; model: RegExp; minYear?: number; maxYear?: number }[] = [
+  { make: 'toyota', model: /land cruiser/i },
+  { make: 'toyota', model: /4runner/i },
+  { make: 'toyota', model: /tacoma/i },
+  { make: 'toyota', model: /fj\s*cruiser/i },
+  { make: 'lexus', model: /lx/i },
+  { make: 'lexus', model: /gx/i },
+  { make: 'jeep', model: /wrangler/i },
+  { make: 'jeep', model: /cherokee/i, maxYear: 2001 }, // XJ only
+  { make: 'land rover', model: /defender/i },
+  { make: 'ford', model: /bronco/i, maxYear: 1996 },
+  { make: 'ford', model: /bronco/i, minYear: 2021 },
+  { make: 'porsche', model: /911/i },
+  { make: 'bmw', model: /m3/i },
+  { make: 'mercedes', model: /g.?(class|wagon|500|550|63)/i },
+];
+
+export function isEnthusiastVehicle(make?: string, model?: string, year?: number): boolean {
+  if (!make || !model) return false;
+  const lm = make.toLowerCase();
+  return ENTHUSIAST_MODELS.some(e => {
+    if (e.make !== lm) return false;
+    if (!e.model.test(model)) return false;
+    if (e.minYear && year && year < e.minYear) return false;
+    if (e.maxYear && year && year > e.maxYear) return false;
+    return true;
+  });
+}
 
 export type CascadeSignal =
   | 'one_time_fix'   // Fix it and forget it. No cascade.
@@ -236,8 +270,11 @@ export function evaluateCascade(
   description: string,
   mileage?: number,
   make?: string,
+  model?: string,
+  year?: number,
 ): CascadeResult {
   const lowerMake = make?.toLowerCase() || '';
+  const enthusiast = isEnthusiastVehicle(make, model, year);
 
   for (const rule of RULES) {
     if (!rule.pattern.test(description)) continue;
@@ -245,20 +282,43 @@ export function evaluateCascade(
     // Make-specific filter
     if (rule.makeFilter && !rule.makeFilter.includes(lowerMake)) continue;
 
+    let result: CascadeResult;
+
     // High mileage override
     if (rule.highMileageOverride && mileage && mileage > rule.highMileageOverride.mileage) {
-      return {
+      result = {
         signal: rule.highMileageOverride.signal,
         note: rule.highMileageOverride.note,
         adjustScore: rule.highMileageOverride.adjustScore,
       };
+    } else {
+      result = {
+        signal: rule.signal,
+        note: rule.note,
+        adjustScore: rule.adjustScore,
+      };
     }
 
-    return {
-      signal: rule.signal,
-      note: rule.note,
-      adjustScore: rule.adjustScore,
-    };
+    // Enthusiast vehicle softening:
+    // Drivetrain rebuilds on Land Cruisers, 4Runners, Wranglers etc.
+    // are investments, not decline signals.
+    if (enthusiast && (result.signal === 'sell_signal' || result.signal === 'cascade')) {
+      const vehicleName = [year, make, model].filter(Boolean).join(' ');
+      if (result.signal === 'sell_signal') {
+        return {
+          signal: 'watch',
+          note: `On a ${vehicleName}, this is a known rebuild — these vehicles hold or appreciate in value. A ${description.toLowerCase()} is more of an investment than a warning sign.`,
+          adjustScore: Math.max(result.adjustScore + 8, -2), // soften significantly
+        };
+      }
+      return {
+        signal: 'neutral',
+        note: `${vehicleName} models are built for longevity. This repair is typical for the mileage and won't diminish the vehicle's value.`,
+        adjustScore: Math.max(result.adjustScore + 5, 0),
+      };
+    }
+
+    return result;
   }
 
   // Default: unknown service, neutral
@@ -273,15 +333,19 @@ export function evaluateAllCascades(
   items: { description: string }[],
   mileage?: number,
   make?: string,
+  model?: string,
+  year?: number,
 ): {
   results: (CascadeResult & { description: string })[];
   totalAdjust: number;
   hasSellSignal: boolean;
   cascadeCount: number;
+  isEnthusiast: boolean;
   summary: string;
 } {
+  const enthusiast = isEnthusiastVehicle(make, model, year);
   const results = items.map(item => ({
-    ...evaluateCascade(item.description, mileage, make),
+    ...evaluateCascade(item.description, mileage, make, model, year),
     description: item.description,
   }));
 
@@ -292,7 +356,10 @@ export function evaluateAllCascades(
   const cascades = results.filter(r => r.signal === 'cascade');
 
   let summary: string;
-  if (hasSellSignal) {
+  if (enthusiast) {
+    const vehicleName = [year, make, model].filter(Boolean).join(' ');
+    summary = `The ${vehicleName} is an enthusiast vehicle that holds its value. Drivetrain work on this platform is a restoration investment, not a red flag.`;
+  } else if (hasSellSignal) {
     summary = `⚠️ ${sellSignals[0].description} is a strong sell signal. ${sellSignals[0].note}`;
   } else if (cascadeCount >= 2) {
     summary = `Multiple cascade-risk repairs (${cascades.map(c => c.description).join(', ')}). When these pile up, more follow.`;
@@ -304,5 +371,5 @@ export function evaluateAllCascades(
     summary = "No unusual mechanical patterns detected.";
   }
 
-  return { results, totalAdjust, hasSellSignal, cascadeCount, summary };
+  return { results, totalAdjust, hasSellSignal, cascadeCount, isEnthusiast: enthusiast, summary };
 }

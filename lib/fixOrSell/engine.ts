@@ -33,6 +33,7 @@ export interface FixSellInput {
   vehicleMileage?: number;
   vehicleYear?: number;
   vehicleMake?: string;
+  vehicleModel?: string;
   vehicleDesc: string;
 }
 
@@ -66,6 +67,7 @@ export interface FixSellVerdict {
   cascadeSummary: string;
   cascadeItems: (CascadeResult & { description: string })[];
   negotiated: NegotiatedVerdict | null;
+  isEnthusiast: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -106,6 +108,8 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
     vehicleDesc,
     vehicleMileage,
     vehicleMake,
+    vehicleModel,
+    vehicleYear,
   } = input;
 
   const repairRatio = vehicleValue > 0 ? repairCost / vehicleValue : 1;
@@ -125,13 +129,24 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
   const reliabilityBad = reliabilityTier === 'below_average' || reliabilityTier === 'poor';
 
   // ── Cascade analysis (hardcoded rules, not LLM) ─────────────────────────
-  const cascade = evaluateAllCascades(repairItems, vehicleMileage, vehicleMake);
+  const cascade = evaluateAllCascades(repairItems, vehicleMileage, vehicleMake, vehicleModel, vehicleYear);
 
   // ── Decision tree ────────────────────────────────────────────────────────
   let decision: FixSellDecision;
 
+  // Enthusiast vehicle override: these vehicles hold/appreciate in value.
+  // Drivetrain work is an investment. Raise the sell threshold significantly.
+  if (cascade.isEnthusiast) {
+    if (repairRatio < 0.40) {
+      decision = 'fix';
+    } else if (repairRatio > 0.60) {
+      decision = 'borderline'; // still not a hard sell for enthusiast
+    } else {
+      decision = 'borderline';
+    }
+  }
   // Cascade override: sell signal from hardcoded rules
-  if (cascade.hasSellSignal && repairRatio > 0.20) {
+  else if (cascade.hasSellSignal && repairRatio > 0.20) {
     decision = 'sell';
   }
   // Strong FIX signals
@@ -194,6 +209,7 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
     cascadeSummary: cascade.summary,
     cascadeItems: cascade.results,
     negotiated,
+    isEnthusiast: cascade.isEnthusiast,
   };
 }
 

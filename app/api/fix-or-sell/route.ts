@@ -14,7 +14,6 @@ import { parseRepairQuote, enrichWithFairPrices } from "@/lib/fixOrSell/parseRep
 import { estimateVehicleValue } from "@/lib/fixOrSell/vehicleValue";
 import { computeFixOrSell, type OwnershipHorizon } from "@/lib/fixOrSell/engine";
 import { computeSellEstimates } from "@/lib/fixOrSell/sellEstimates";
-import { computeReplacementAnalysis } from "@/lib/fixOrSell/replacementCost";
 import OpenAI from "openai";
 
 // ── Model Intelligence (lightweight version for fix-or-sell) ─────────────────
@@ -270,18 +269,48 @@ export async function POST(req: NextRequest) {
       vehicleMileage: vehicle.mileage,
       vehicleYear: vehicle.year,
       vehicleMake: vehicle.make,
+      vehicleModel: vehicle.model,
       vehicleDesc,
     });
 
-    // ── Step 6: Sell estimates + replacement cost ───────────────────────────
-    const sellEstimates = computeSellEstimates(dealerRetailValue);
-    const replacement = computeReplacementAnalysis(
-      dealerRetailValue,
-      sellEstimates.bestMid,
-      quote.totalCost,
-    );
+    // ── Step 6: Sell estimates ──────────────────────────────────────────────
+    const sellEstimates = computeSellEstimates(dealerRetailValue, vehicle.year);
 
-    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | sell best=$${sellEstimates.bestMid.toLocaleString()} | switch cost=$${replacement.switchingCost.toLocaleString()}`);
+    // ── Step 7: Fetch real market comps for display ─────────────────────────
+    let comps: { heading: string; price: number; miles: number; city: string; state: string; url: string }[] = [];
+    try {
+      const apiKey = process.env.MARKETCHECK_API_KEY;
+      if (apiKey && vehicle.year && vehicle.make && vehicle.model) {
+        const params = new URLSearchParams({
+          api_key: apiKey,
+          year: String(vehicle.year),
+          make: vehicle.make,
+          model: vehicle.model,
+          rows: '6',
+        });
+        const compRes = await fetch(`https://api.marketcheck.com/v2/search/car/active?${params}`, {
+          signal: AbortSignal.timeout(8000),
+        });
+        if (compRes.ok) {
+          const compData = await compRes.json();
+          comps = (compData.listings || [])
+            .filter((l: any) => l.price && l.price > 0)
+            .map((l: any) => ({
+              heading: l.heading || `${l.build?.year || ''} ${l.build?.make || ''} ${l.build?.model || ''}`.trim(),
+              price: l.price,
+              miles: l.miles || 0,
+              city: l.dealer?.city || '',
+              state: l.dealer?.state || '',
+              url: l.vdp_url || '',
+            }))
+            .slice(0, 5);
+        }
+      }
+    } catch {
+      // Non-critical — comps are nice-to-have
+    }
+
+    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | sell best=$${sellEstimates.bestMid.toLocaleString()} | comps=${comps.length} | enthusiast=${verdict.isEnthusiast}`);
 
     // ── Return complete result ──────────────────────────────────────────────
     return NextResponse.json({
@@ -304,8 +333,8 @@ export async function POST(req: NextRequest) {
         compCount: valueEstimate.compCount,
         methodology: valueEstimate.methodology,
       },
+      comps,
       sellEstimates,
-      replacement,
       modelIntel: modelIntel ? {
         reliabilityTier: modelIntel.reliabilityTier,
         ownershipOutlook: modelIntel.ownershipOutlook,
