@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
+import ReactMarkdown from 'react-markdown';
 
 type Step = "input" | "vehicle" | "loading" | "verdict";
 
@@ -48,6 +49,27 @@ export default function FixOrSellPage() {
       }, 300);
     }
   }, [step]);
+
+  // Session Persistence
+  useEffect(() => {
+    const saved = localStorage.getItem('wrenchcheck_session');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.result) setResult(parsed.result);
+        if (parsed.chatMessages) setChatMessages(parsed.chatMessages);
+        if (parsed.step && parsed.step !== "input" && parsed.step !== "loading") setStep(parsed.step);
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (step === "verdict") {
+      localStorage.setItem('wrenchcheck_session', JSON.stringify({ step, result, chatMessages }));
+    } else if (step === "input") {
+      localStorage.removeItem('wrenchcheck_session');
+    }
+  }, [step, result, chatMessages]);
 
   // -- Submit repair quote --------------------------------------------------
   const submit = useCallback(async (overrideFiles?: File[]) => {
@@ -183,6 +205,14 @@ export default function FixOrSellPage() {
         details summary { user-select: none; }
         details summary:hover { background: #F8FAFC; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .chat-msg p { margin: 0 0 8px 0; }
+        .chat-msg p:last-child { margin: 0; }
+        .chat-msg ul, .chat-msg ol { margin: 0 0 8px 0; padding-left: 20px; }
+        .chat-msg strong { font-weight: 700; }
+        @media (max-width: 640px) {
+          .fos-ratio-grid { flex-direction: column !important; gap: 8px !important; }
+          .fos-ratio-grid > div { width: 100% !important; justify-content: space-between !important; display: flex !important; }
+        }
       `}</style>
 
       {/* Header */}
@@ -331,7 +361,7 @@ export default function FixOrSellPage() {
               <p style={{ fontSize: 14, color: "#334155", lineHeight: 1.75, margin: "0 0 16px" }}>{v.explanation}</p>
 
               {/* Key numbers — inline row */}
-              <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 12, flexWrap: "wrap" }}>
+              <div className="fos-ratio-grid" style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 12, flexWrap: "wrap" }}>
                 <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Value </span><span style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>~${Math.round(v.vehicleValue || 0).toLocaleString()}</span></div>
                 <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Repair </span><span style={{ fontSize: 15, fontWeight: 800, color: dc }}>${Math.round(v.repairCost || 0).toLocaleString()}</span></div>
                 <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ratio </span><span style={{ fontSize: 15, fontWeight: 800, color: dc }}>{v.repairRatio}%</span></div>
@@ -367,7 +397,9 @@ export default function FixOrSellPage() {
                 <div style={{ maxHeight: 400, overflowY: "auto", marginBottom: chatMessages.length ? 12 : 0 }}>
                   {chatMessages.map((m, i) => (
                     <div key={i} style={{ marginBottom: 8, textAlign: m.role === "user" ? "right" : "left" }}>
-                      <span style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155", whiteSpace: "pre-wrap" }}>{m.content}</span>
+                      <div className="chat-msg" style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155", textAlign: "left" }}>
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                      </div>
                     </div>
                   ))}
                   {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
