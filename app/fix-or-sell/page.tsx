@@ -263,12 +263,15 @@ export default function FixOrSellPage() {
           const dc = decisionColor(v.decision);
           const se = result.sellEstimates;
           const comps = result.comps || [];
+          const ai = result.archetypeInfo;
+          const vc = result.valuationConfidence;
+          const isNonCommodity = ai && ai.archetype !== 'commodity';
           return (<>
-            {/* Enthusiast badge */}
-            {v.isEnthusiast && (
+            {/* Archetype badge */}
+            {isNonCommodity && ai && (
               <div style={{ textAlign: "center", marginBottom: 12 }}>
                 <span style={{ display: "inline-block", padding: "4px 14px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 99, fontSize: 11, fontWeight: 800, color: "#1E40AF", letterSpacing: "0.05em" }}>
-                  🏔️ ENTHUSIAST / COLLECTOR VEHICLE
+                  {ai.emoji} {ai.label.toUpperCase()}
                 </span>
               </div>
             )}
@@ -294,6 +297,14 @@ export default function FixOrSellPage() {
               ))}
             </div>
 
+            {/* Valuation confidence warning */}
+            {vc && vc.confidence === 'low' && (
+              <div className="fos-card" style={{ padding: "14px 24px", marginTop: 16, background: "#FEF3C7", borderColor: "#FDE68A" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: AMBER, margin: "0 0 4px", textTransform: "uppercase" }}>⚠️ LOW VALUATION CONFIDENCE</p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#92400E", lineHeight: 1.5, margin: 0 }}>{vc.note}</p>
+              </div>
+            )}
+
             {/* Explanation */}
             <div className="fos-card" style={{ padding: "20px 24px", marginTop: 16 }}>
               <p style={{ fontSize: 14, color: "#334155", lineHeight: 1.7, margin: 0 }}>{v.explanation}</p>
@@ -315,8 +326,8 @@ export default function FixOrSellPage() {
 
             {/* Cascade / Mechanical intelligence */}
             {v.cascadeSummary && !v.cascadeSummary.includes("No unusual") && !v.cascadeSummary.includes("standard maintenance") && (
-              <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: v.isEnthusiast ? "#F0F9FF" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FEF2F2" : "#F0F9FF", borderColor: v.isEnthusiast ? "#BAE6FD" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FECACA" : "#BAE6FD" }}>
-                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: v.isEnthusiast ? "#0369A1" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? RED : "#0369A1", margin: "0 0 6px", textTransform: "uppercase" }}>{v.isEnthusiast ? "🏔️" : "🔍"} MECHANICAL INTELLIGENCE</p>
+              <div className="fos-card" style={{ padding: "16px 24px", marginTop: 16, background: isNonCommodity ? "#F0F9FF" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FEF2F2" : "#F0F9FF", borderColor: isNonCommodity ? "#BAE6FD" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? "#FECACA" : "#BAE6FD" }}>
+                <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: isNonCommodity ? "#0369A1" : v.cascadeItems?.some((c:any) => c.signal === 'sell_signal') ? RED : "#0369A1", margin: "0 0 6px", textTransform: "uppercase" }}>{ai?.emoji || "🔍"} MECHANICAL INTELLIGENCE</p>
                 <p style={{ fontSize: 13, fontWeight: 600, color: "#334155", lineHeight: 1.6, margin: 0 }}>{v.cascadeSummary}</p>
               </div>
             )}

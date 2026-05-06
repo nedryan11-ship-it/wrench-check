@@ -1,12 +1,12 @@
 // lib/fixOrSell/engine.ts
 // Fix or Sell Decision Engine — pure logic, no API calls.
 //
-// Takes: repair cost, vehicle value, reliability profile, model intelligence
-// Returns: Fix / Sell / Borderline verdict with explanation
-//
-// V2: Integrates cascade rules, negotiated pricing, sell estimates, replacement cost.
+// V4: Archetype-driven decision thresholds.
+// Takes: repair cost, vehicle value, archetype, reliability profile
+// Returns: Fix / Sell / Borderline verdict with archetype-aware explanation
 
 import { evaluateAllCascades, type CascadeResult } from './cascadeRules';
+import { type VehicleArchetype, type ArchetypeResult, getArchetypeThresholds } from './vehicleArchetypes';
 
 export type RepairCategory = 'routine' | 'drivetrain' | 'safety' | 'electrical' | 'body' | 'other';
 
@@ -23,7 +23,7 @@ export type OwnershipHorizon = '<1yr' | '1-3yr' | '3+yr';
 export interface FixSellInput {
   repairCost: number;
   vehicleValue: number;
-  dealerRetailValue: number;      // pre-discount dealer price (for sell estimates)
+  dealerRetailValue: number;
   vehicleValueSource: 'marketcheck' | 'ai_estimated' | 'user_entered';
   reliabilityTier: 'excellent' | 'good' | 'below_average' | 'poor' | null;
   tco: { year1Low: number; year1High: number } | null;
@@ -35,6 +35,7 @@ export interface FixSellInput {
   vehicleMake?: string;
   vehicleModel?: string;
   vehicleDesc: string;
+  archetype: ArchetypeResult;
 }
 
 export type FixSellDecision = 'fix' | 'sell' | 'borderline';
@@ -63,11 +64,12 @@ export interface FixSellVerdict {
     other: number;
   };
   confidenceNote: string;
-  // V2 additions
+  // V4 additions
   cascadeSummary: string;
   cascadeItems: (CascadeResult & { description: string })[];
   negotiated: NegotiatedVerdict | null;
-  isEnthusiast: boolean;
+  archetype: VehicleArchetype;
+  archetypeLabel: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,27 +99,17 @@ function nearTermExposureCost(exposures: FixSellInput['majorExposures']): number
 // ── Core Decision Logic ──────────────────────────────────────────────────────
 
 export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
-  const {
-    repairCost,
-    vehicleValue,
-    reliabilityTier,
-    tco,
-    majorExposures,
-    repairItems,
-    ownershipHorizon,
-    vehicleDesc,
-    vehicleMileage,
-    vehicleMake,
-    vehicleModel,
-    vehicleYear,
-  } = input;
+  const { repairCost, vehicleValue, reliabilityTier, tco, majorExposures,
+    repairItems, ownershipHorizon, vehicleDesc, vehicleMileage,
+    vehicleMake, vehicleModel, vehicleYear, archetype } = input;
 
+  const at = archetype.archetype;
+  const th = getArchetypeThresholds(at);
   const repairRatio = vehicleValue > 0 ? repairCost / vehicleValue : 1;
   const mix = categorySums(repairItems);
   const routineShare = repairCost > 0 ? mix.routine / repairCost : 0;
   const drivetrainShare = repairCost > 0 ? mix.drivetrain / repairCost : 0;
 
-  // Forward cost = repair + expected year 1 maintenance
   const expectedMaint12mo = tco
     ? Math.round((tco.year1Low + tco.year1High) / 2)
     : Math.round(vehicleValue * 0.06);
@@ -128,88 +120,84 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
   const reliabilityGood = reliabilityTier === 'excellent' || reliabilityTier === 'good';
   const reliabilityBad = reliabilityTier === 'below_average' || reliabilityTier === 'poor';
 
-  // ── Cascade analysis (hardcoded rules, not LLM) ─────────────────────────
   const cascade = evaluateAllCascades(repairItems, vehicleMileage, vehicleMake, vehicleModel, vehicleYear);
 
-  // ── Decision tree ────────────────────────────────────────────────────────
+  // ── Archetype-driven decision tree ───────────────────────────────────────
   let decision: FixSellDecision;
 
-  // Enthusiast vehicle override: these vehicles hold/appreciate in value.
-  // Drivetrain work is an investment. Raise the sell threshold significantly.
-  if (cascade.isEnthusiast) {
-    if (repairRatio < 0.40) {
-      decision = 'fix';
-    } else if (repairRatio > 0.60) {
-      decision = 'borderline'; // still not a hard sell for enthusiast
+  // Fix: below archetype fix ceiling
+  if (repairRatio < th.fixCeiling && !cascade.hasSellSignal) {
+    decision = 'fix';
+  } else if (repairRatio < th.fixCeiling && !th.cascadeSellSignals) {
+    decision = 'fix'; // enthusiast/truck: cascade signals suppressed
+  }
+  // Fix: reliable appliance with good reliability
+  else if (repairRatio < th.fixCeiling * 1.5 && reliabilityGood && cascade.totalAdjust >= -3) {
+    decision = 'fix';
+  }
+  // Fix: mostly routine
+  else if (repairRatio < th.fixCeiling * 1.3 && routineShare > 0.7) {
+    decision = 'fix';
+  }
+  // Sell: cascade sell signal (only if archetype respects them)
+  else if (th.cascadeSellSignals && cascade.hasSellSignal && repairRatio > th.fixCeiling) {
+    decision = 'sell';
+  }
+  // Sell: above archetype sell floor
+  else if (repairRatio > th.sellFloor) {
+    decision = 'sell';
+  }
+  // Sell: luxury depreciator trap — forward depreciation exceeds repair
+  else if (at === 'luxury_depreciator' && repairRatio > 0.20) {
+    const forwardDepr = vehicleValue * (archetype.annualDepreciationPct / 100);
+    if (repairCost + forwardDepr > vehicleValue * 0.45) {
+      decision = 'sell';
     } else {
       decision = 'borderline';
     }
   }
-  // Cascade override: sell signal from hardcoded rules
-  else if (cascade.hasSellSignal && repairRatio > 0.20) {
+  // Sell: bad reliability + high ratio
+  else if (repairRatio > th.fixCeiling * 2 && reliabilityBad) {
     decision = 'sell';
   }
-  // Strong FIX signals
-  else if (repairRatio < 0.15 && !cascade.hasSellSignal) {
-    decision = 'fix';
-  } else if (repairRatio < 0.25 && reliabilityGood && cascade.totalAdjust >= -3) {
-    decision = 'fix';
-  } else if (repairRatio < 0.20 && routineShare > 0.7) {
-    decision = 'fix';
-  }
-  // Strong SELL signals
-  else if (repairRatio > 0.50) {
-    decision = 'sell';
-  } else if (repairRatio > 0.35 && reliabilityBad) {
-    decision = 'sell';
-  } else if (repairRatio > 0.35 && nearTermCount >= 2) {
-    decision = 'sell';
-  } else if (drivetrainShare > 0.5 && repairRatio > 0.30) {
-    decision = 'sell';
-  } else if (forwardCost12mo > vehicleValue * 0.60) {
+  // Sell: multiple near-term exposures
+  else if (repairRatio > th.fixCeiling * 2 && nearTermCount >= 2) {
     decision = 'sell';
   }
-  // Cascade-influenced borderline → sell
-  else if (cascade.cascadeCount >= 2 && repairRatio > 0.25) {
+  // Sell: forward cost exceeds value
+  else if (forwardCost12mo > vehicleValue * 0.60 && th.cascadeSellSignals) {
     decision = 'sell';
   }
   else {
     decision = 'borderline';
   }
 
-  // ── Ownership horizon adjustments ────────────────────────────────────────
+  // Ownership horizon adjustments
   if (decision === 'borderline' && ownershipHorizon) {
-    if (ownershipHorizon === '3+yr' && repairRatio < 0.40 && !reliabilityBad && !cascade.hasSellSignal) {
+    if (ownershipHorizon === '3+yr' && repairRatio < th.sellFloor && !reliabilityBad) {
       decision = 'fix';
-    } else if (ownershipHorizon === '<1yr' && repairRatio > 0.25) {
+    } else if (ownershipHorizon === '<1yr' && repairRatio > th.fixCeiling * 1.5) {
       decision = 'sell';
     }
   }
 
-  // ── Negotiated verdict (what if you get fair prices?) ────────────────────
   const negotiated = computeNegotiatedVerdict(repairItems, vehicleValue, decision);
-
-  // ── Generate human-readable output ───────────────────────────────────────
-  const headline = generateHeadline(decision, repairRatio, routineShare, drivetrainShare);
+  const headline = generateHeadline(decision, repairRatio, routineShare, drivetrainShare, at);
   const explanation = generateExplanation(decision, input, repairRatio, mix, forwardCost12mo, expectedMaint12mo, nearTermCount, nearTermCost, cascade);
   const recommendation = generateRecommendation(decision, input, repairRatio, routineShare, negotiated);
   const confidenceNote = generateConfidenceNote(input);
 
   return {
-    decision,
-    headline,
+    decision, headline,
     repairRatio: Math.round(repairRatio * 100),
-    forwardCost12mo,
-    vehicleValue,
-    repairCost,
-    explanation,
-    recommendation,
-    repairMix: mix,
-    confidenceNote,
+    forwardCost12mo, vehicleValue, repairCost,
+    explanation, recommendation,
+    repairMix: mix, confidenceNote,
     cascadeSummary: cascade.summary,
     cascadeItems: cascade.results,
     negotiated,
-    isEnthusiast: cascade.isEnthusiast,
+    archetype: at,
+    archetypeLabel: archetype.label,
   };
 }
 
@@ -266,18 +254,22 @@ function generateHeadline(
   ratio: number,
   routineShare: number,
   drivetrainShare: number,
+  archetype?: VehicleArchetype,
 ): string {
   if (decision === 'fix') {
     if (ratio < 0.10) return "Easy fix — barely a dent in the car's value.";
     if (routineShare > 0.7) return "Fix it — this is routine maintenance, not a red flag.";
+    if (archetype === 'enthusiast') return "Fix it — this is a worthwhile investment in a vehicle that holds its value.";
+    if (archetype === 'truck_work') return "Fix it — cheaper than replacing a truck in today's market.";
+    if (archetype === 'reliable_appliance') return "Fix it — this car will keep running for years to come.";
     return "Fix it — this repair makes financial sense.";
   }
   if (decision === 'sell') {
-    if (ratio > 0.60) return "Sell — you'd be pouring money into a sinking ship.";
-    if (drivetrainShare > 0.5) return "Sell — major drivetrain work on a depreciating car.";
+    if (archetype === 'luxury_depreciator') return "Sell — repair costs stay high while the car's value keeps dropping.";
+    if (ratio > 0.60) return "Sell — the repair cost is too high relative to the car's value.";
+    if (drivetrainShare > 0.5) return "Sell — major drivetrain work on a vehicle entering decline.";
     return "Sell — this repair doesn't justify the car's remaining value.";
   }
-  // borderline
   if (routineShare > 0.5) return "Close call — leans toward fix if you're keeping it.";
   return "Close call — depends on how long you plan to keep it.";
 }
@@ -348,7 +340,10 @@ function generateRecommendation(
     return `Fix it. At ${Math.round(ratio * 100)}% of the car's value, this repair preserves a car worth significantly more than the cost to fix it.${negNote}`;
   }
   if (decision === 'sell') {
-    return `Sell instead of repairing. Get instant offers from CarMax or Carvana, or list on FB Marketplace for the best price. Even selling as-is avoids sinking $${input.repairCost.toLocaleString()} into a declining asset.`;
+    if (input.archetype.archetype === 'luxury_depreciator') {
+      return `Sell before more value evaporates. This vehicle loses ~${input.archetype.annualDepreciationPct}% per year — even a perfect repair won't stop that. List on FB Marketplace or get trade-in offers.`;
+    }
+    return `Sell instead of repairing. List on FB Marketplace for the best price, or get dealer trade-in offers. Selling as-is avoids sinking $${input.repairCost.toLocaleString()} into a vehicle that's not worth the investment.`;
   }
   if (input.ownershipHorizon === '3+yr') {
     return `If you're truly keeping this car 3+ years, the repair is worth it. Otherwise, sell.${negNote}`;

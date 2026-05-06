@@ -14,6 +14,7 @@ import { parseRepairQuote, enrichWithFairPrices } from "@/lib/fixOrSell/parseRep
 import { estimateVehicleValue } from "@/lib/fixOrSell/vehicleValue";
 import { computeFixOrSell, type OwnershipHorizon } from "@/lib/fixOrSell/engine";
 import { computeSellEstimates } from "@/lib/fixOrSell/sellEstimates";
+import { classifyVehicle, assessValuationConfidence } from "@/lib/fixOrSell/vehicleArchetypes";
 import OpenAI from "openai";
 
 // ── Model Intelligence (lightweight version for fix-or-sell) ─────────────────
@@ -251,9 +252,15 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // ── Step 4: Compute dealer retail value (pre-discount) ───────────────────
-    // vehicleValue is private party; dealer retail = vehicleValue / 0.83
+    // ── Step 4: Classify vehicle archetype ──────────────────────────────────
     const dealerRetailValue = Math.round(valueEstimate.value / 0.83 / 100) * 100;
+    const archetypeResult = classifyVehicle(vehicle.make, vehicle.model, vehicle.year, vehicleDesc);
+    const valConfidence = assessValuationConfidence(
+      archetypeResult.archetype,
+      valueEstimate.compCount || 0,
+      valueEstimate.source,
+      false, // TODO: condition input not yet wired
+    );
 
     // ── Step 5: Run the decision engine ─────────────────────────────────────
     const verdict = computeFixOrSell({
@@ -271,10 +278,11 @@ export async function POST(req: NextRequest) {
       vehicleMake: vehicle.make,
       vehicleModel: vehicle.model,
       vehicleDesc,
+      archetype: archetypeResult,
     });
 
     // ── Step 6: Sell estimates ──────────────────────────────────────────────
-    const sellEstimates = computeSellEstimates(dealerRetailValue, vehicle.year);
+    const sellEstimates = computeSellEstimates(dealerRetailValue, archetypeResult);
 
     // ── Step 7: Fetch real market comps for display ─────────────────────────
     let comps: { heading: string; price: number; miles: number; city: string; state: string; url: string }[] = [];
@@ -310,7 +318,7 @@ export async function POST(req: NextRequest) {
       // Non-critical — comps are nice-to-have
     }
 
-    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | sell best=$${sellEstimates.bestMid.toLocaleString()} | comps=${comps.length} | enthusiast=${verdict.isEnthusiast}`);
+    console.log(`[fix-or-sell] Verdict: ${verdict.decision.toUpperCase()} | archetype=${archetypeResult.archetype} | ratio=${verdict.repairRatio}% | repair=$${quote.totalCost.toLocaleString()} / value=$${valueEstimate.value.toLocaleString()} | valConf=${valConfidence.confidence} | comps=${comps.length}`);
 
     // ── Return complete result ──────────────────────────────────────────────
     return NextResponse.json({
@@ -335,6 +343,13 @@ export async function POST(req: NextRequest) {
       },
       comps,
       sellEstimates,
+      archetypeInfo: {
+        archetype: archetypeResult.archetype,
+        label: archetypeResult.label,
+        emoji: archetypeResult.emoji,
+        description: archetypeResult.description,
+      },
+      valuationConfidence: valConfidence,
       modelIntel: modelIntel ? {
         reliabilityTier: modelIntel.reliabilityTier,
         ownershipOutlook: modelIntel.ownershipOutlook,
