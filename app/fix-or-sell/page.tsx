@@ -6,7 +6,7 @@ type Horizon = "<1yr" | "1-3yr" | "3+yr";
 
 export default function FixOrSellPage() {
   const [step, setStep] = useState<Step>("input");
-  const [tab, setTab] = useState<"file" | "text">("file");
+  const [tab, setTab] = useState<"file" | "text" | "describe">("file");
   const [files, setFiles] = useState<File[]>([]);
   const [textInput, setTextInput] = useState("");
   const [drag, setDrag] = useState(false);
@@ -38,7 +38,7 @@ export default function FixOrSellPage() {
     setError(null);
     const f = overrideFiles ?? files;
     if (tab === "file" && f.length === 0) return;
-    if (tab === "text" && textInput.trim().length < 15) return;
+    if ((tab === "text" || tab === "describe") && textInput.trim().length < 15) return;
 
     setStep("loading");
     try {
@@ -195,10 +195,10 @@ export default function FixOrSellPage() {
 
           <div className="fos-card" style={{ overflow: "hidden" }}>
             {/* Tabs */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: "1px solid #E2E8F0" }}>
-              {(["file", "text"] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{ padding: "14px 12px", background: tab === t ? "#EFF4FF40" : "transparent", border: "none", borderBottom: tab === t ? `2px solid ${BRAND}` : "2px solid transparent", cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: tab === t ? BRAND : "#94A3B8" }}>
-                  {t === "file" ? "📄 Upload file" : "✏️ Type / paste"}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: "1px solid #E2E8F0" }}>
+              {([["file", "📄 Upload"], ["text", "✏️ Type"], ["describe", "💬 Describe"]] as const).map(([t, label]) => (
+                <button key={t} onClick={() => setTab(t as any)} style={{ padding: "14px 12px", background: tab === t ? "#EFF4FF40" : "transparent", border: "none", borderBottom: tab === t ? `2px solid ${BRAND}` : "2px solid transparent", cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: tab === t ? BRAND : "#94A3B8" }}>
+                  {label}
                 </button>
               ))}
             </div>
@@ -223,6 +223,19 @@ export default function FixOrSellPage() {
 
               {tab === "text" && (<>
                 <textarea value={textInput} onChange={e => setTextInput(e.target.value)} rows={8} placeholder={"Front brake pads + rotors — $680\nTransmission fluid flush — $320\nA/C compressor — $1,450\nTotal: $2,450"} style={{ width: "100%", border: "1px solid #E2E8F0", borderRadius: 12, padding: "12px 16px", fontSize: 14, fontFamily: "monospace", lineHeight: 1.6, resize: "none", outline: "none" }} />
+                <button className="fos-btn" onClick={() => submit()} disabled={textInput.trim().length < 15} style={{ width: "100%", marginTop: 12, padding: "14px 20px", background: BRAND, color: "#fff", borderRadius: 14, fontSize: 13, fontWeight: 800, opacity: textInput.trim().length < 15 ? 0.4 : 1 }}>
+                  ⚡ Analyze My Quote
+                </button>
+              </>)}
+
+              {tab === "describe" && (<>
+                <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>Got a quote over the phone? Just describe it naturally.</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                  {["They quoted me $4,200 for a transmission rebuild on my 2014 Altima with 142k miles", "My mechanic said brakes and rotors all around plus ball joints — about $2,100 for a 2020 F-150"].map(ex => (
+                    <button key={ex} onClick={() => { setTextInput(ex); setTab("text"); }} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer", textAlign: "left" }}>{ex.slice(0, 60)}…</button>
+                  ))}
+                </div>
+                <textarea value={textInput} onChange={e => setTextInput(e.target.value)} rows={5} placeholder={"My mechanic quoted me $3,500 for a transmission rebuild on my 2008 Toyota Land Cruiser with 164,000 miles..."} style={{ width: "100%", border: "1px solid #E2E8F0", borderRadius: 12, padding: "12px 16px", fontSize: 14, lineHeight: 1.6, resize: "none", outline: "none" }} />
                 <button className="fos-btn" onClick={() => submit()} disabled={textInput.trim().length < 15} style={{ width: "100%", marginTop: 12, padding: "14px 20px", background: BRAND, color: "#fff", borderRadius: 14, fontSize: 13, fontWeight: 800, opacity: textInput.trim().length < 15 ? 0.4 : 1 }}>
                   ⚡ Analyze My Quote
                 </button>
@@ -303,6 +316,19 @@ export default function FixOrSellPage() {
               </div>
             )}
 
+            {/* Vehicle Profile */}
+            <div className="fos-card" style={{ padding: "16px 24px", marginBottom: 12, display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>🚗</div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 16, fontWeight: 800, color: "#0D1C2E", margin: 0 }}>{result.vehicle?.desc || `${result.vehicle?.year} ${result.vehicle?.make} ${result.vehicle?.model}`}</p>
+                <div style={{ display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
+                  {result.vehicle?.mileage && <span style={{ fontSize: 11, fontWeight: 600, color: "#64748B" }}>📏 {Number(result.vehicle.mileage).toLocaleString()} mi</span>}
+                  {ai && <span style={{ fontSize: 11, fontWeight: 600, color: "#64748B" }}>{ai.emoji} {ai.label}</span>}
+                  {vc && <span style={{ fontSize: 11, fontWeight: 600, color: vc.confidence === 'low' ? AMBER : "#64748B" }}>📊 Value conf: {vc.confidence}</span>}
+                </div>
+              </div>
+            </div>
+
             {/* Headline card */}
             <div className="fos-card" style={{ padding: "32px 28px", textAlign: "center", borderLeft: `4px solid ${dc}` }}>
               <div style={{ fontSize: 40, marginBottom: 8 }}>{decisionEmoji(v.decision)}</div>
@@ -365,6 +391,43 @@ export default function FixOrSellPage() {
                 </ul>
               </div>
             )}
+
+            {/* ── CHAT (PRIMARY CTA — right after recommendation) ─────── */}
+            <div className="fos-card" style={{ marginTop: 20, overflow: "hidden", border: `2px solid ${BRAND}30` }}>
+              <div style={{ padding: "16px 24px", background: `${BRAND}06`, borderBottom: "1px solid #E2E8F0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 20 }}>💬</span>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: BRAND, margin: 0 }}>Let&apos;s talk through this</p>
+                    <p style={{ fontSize: 11, color: "#64748B", margin: "2px 0 0" }}>Share more context to refine your recommendation.</p>
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: 16 }}>
+                {chatMessages.length === 0 && v.followUpQuestions?.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#64748B", margin: "0 0 8px" }}>Questions that could refine this recommendation:</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {v.followUpQuestions.map((q: string) => (
+                        <button key={q} onClick={() => setChatInput(q)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer" }}>{q}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ maxHeight: 400, overflowY: "auto", marginBottom: 12 }}>
+                  {chatMessages.map((m, i) => (
+                    <div key={i} style={{ marginBottom: 8, textAlign: m.role === "user" ? "right" : "left" }}>
+                      <span style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155", whiteSpace: "pre-wrap" }}>{m.content}</span>
+                    </div>
+                  ))}
+                  {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask anything about this decision..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none" }} />
+                  <button className="fos-btn" onClick={sendChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 18px", background: BRAND, color: "#fff", borderRadius: 10, fontSize: 12, fontWeight: 700, opacity: !chatInput.trim() ? 0.4 : 1 }}>Send</button>
+                </div>
+              </div>
+            </div>
 
             {/* Negotiate */}
             {v.negotiated && (
@@ -437,7 +500,8 @@ export default function FixOrSellPage() {
             {se?.estimates?.length > 0 && (
               <div className="fos-card" style={{ marginTop: 16, overflow: "hidden" }}>
                 <div style={{ padding: "14px 24px", borderBottom: "1px solid #E2E8F0" }}>
-                  <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>IF YOU SELL — WHAT TO EXPECT</p>
+                  <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", color: "#94A3B8", margin: 0, textTransform: "uppercase" }}>IF YOU SELL — WHAT TO EXPECT (AS-IS)</p>
+                  {se.disclaimer && <p style={{ fontSize: 10, color: "#94A3B8", margin: "4px 0 0", lineHeight: 1.4 }}>{se.disclaimer}</p>}
                 </div>
                 {se.estimates.map((ch: any, i: number) => (
                   <div key={i} style={{ padding: "12px 24px", borderBottom: i < se.estimates.length - 1 ? "1px solid #F1F5F9" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: ch.available === false ? 0.5 : 1 }}>
@@ -484,43 +548,6 @@ export default function FixOrSellPage() {
             )}
 
             <p style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", marginTop: 12 }}>{v.confidenceNote}</p>
-
-            {/* ── CHAT (PRIMARY — always visible) ─────────────────────── */}
-            <div className="fos-card" style={{ marginTop: 20, overflow: "hidden", border: `2px solid ${BRAND}30` }}>
-              <div style={{ padding: "16px 24px", background: `${BRAND}06`, borderBottom: "1px solid #E2E8F0" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 20 }}>💬</span>
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 800, color: BRAND, margin: 0 }}>Let&apos;s talk through this</p>
-                    <p style={{ fontSize: 11, color: "#64748B", margin: "2px 0 0" }}>Ask questions, share context, and refine your recommendation.</p>
-                  </div>
-                </div>
-              </div>
-              <div style={{ padding: 16 }}>
-                {chatMessages.length === 0 && v.followUpQuestions?.length > 0 && (
-                  <div style={{ marginBottom: 14 }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: "#64748B", margin: "0 0 8px" }}>Questions that could refine this recommendation:</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {v.followUpQuestions.map((q: string) => (
-                        <button key={q} onClick={() => setChatInput(q)} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer" }}>{q}</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{ maxHeight: 400, overflowY: "auto", marginBottom: 12 }}>
-                  {chatMessages.map((m, i) => (
-                    <div key={i} style={{ marginBottom: 8, textAlign: m.role === "user" ? "right" : "left" }}>
-                      <span style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155", whiteSpace: "pre-wrap" }}>{m.content}</span>
-                    </div>
-                  ))}
-                  {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask anything about this decision..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none" }} />
-                  <button className="fos-btn" onClick={sendChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 18px", background: BRAND, color: "#fff", borderRadius: 10, fontSize: 12, fontWeight: 700, opacity: !chatInput.trim() ? 0.4 : 1 }}>Send</button>
-                </div>
-              </div>
-            </div>
 
             {/* Start over */}
             <div style={{ textAlign: "center", marginTop: 24 }}>

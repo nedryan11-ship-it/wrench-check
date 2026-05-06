@@ -281,8 +281,8 @@ export async function POST(req: NextRequest) {
       archetype: archetypeResult,
     });
 
-    // ── Step 6: Sell estimates ──────────────────────────────────────────────
-    const sellEstimates = computeSellEstimates(dealerRetailValue, archetypeResult);
+    // ── Step 6: Sell estimates (problem-aware) ────────────────────────────────
+    const sellEstimates = computeSellEstimates(valueEstimate.value, quote.totalCost, archetypeResult);
 
     // ── Step 7: Fetch real market comps for display ─────────────────────────
     let comps: { heading: string; price: number; miles: number; city: string; state: string; url: string }[] = [];
