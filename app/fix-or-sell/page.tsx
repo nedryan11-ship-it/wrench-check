@@ -37,16 +37,18 @@ export default function FixOrSellPage() {
   const submit = useCallback(async (overrideFiles?: File[]) => {
     setError(null);
     const f = overrideFiles ?? files;
-    if (tab === "file" && f.length === 0) return;
-    if ((tab === "text" || tab === "describe") && textInput.trim().length < 15) return;
+    const hasFile = f.length > 0;
+    const hasText = textInput.trim().length >= 15;
+    if (!hasFile && !hasText) return;
 
     setStep("loading");
     try {
       let res: Response;
-      if (tab === "file" && f.length > 0) {
+      if (hasFile) {
         const fd = new FormData();
         fd.append("file", f[0]);
         if (horizon) fd.append("horizon", horizon);
+        if (hasText) fd.append("context", textInput.trim());
         res = await fetch("/api/fix-or-sell", { method: "POST", body: fd });
       } else {
         res = await fetch("/api/fix-or-sell", {
@@ -62,7 +64,7 @@ export default function FixOrSellPage() {
       setResult(data);
       setStep("verdict");
     } catch { setError("Something went wrong. Please try again."); setStep("input"); }
-  }, [files, textInput, tab, horizon]);
+  }, [files, textInput, horizon]);
 
   // ── Submit with vehicle info ─────────────────────────────────────────────
   const submitWithVehicle = useCallback(async () => {
@@ -184,78 +186,81 @@ export default function FixOrSellPage() {
         {/* ── INPUT STEP ──────────────────────────────────────────────── */}
         {step === "input" && (<>
           <div style={{ textAlign: "center", marginBottom: 32 }}>
-            <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.3em", color: `${BRAND}66`, textTransform: "uppercase", marginBottom: 8 }}>FIX OR SELL</p>
-            <h2 style={{ fontSize: 40, fontWeight: 900, color: "#0D1C2E", letterSpacing: "-0.04em", lineHeight: 1.05, margin: 0 }}>
-              Got a repair quote?<br /><span style={{ color: BRAND }}>We'll tell you what to do.</span>
+            <p style={{ fontSize: 10, fontWeight: 900, letterSpacing: "0.3em", color: `${BRAND}66`, textTransform: "uppercase", marginBottom: 8 }}>FIX OR SELL ADVISOR</p>
+            <h2 style={{ fontSize: 36, fontWeight: 900, color: "#0D1C2E", letterSpacing: "-0.04em", lineHeight: 1.1, margin: 0 }}>
+              Got a repair quote?<br /><span style={{ color: BRAND }}>Let&apos;s figure this out.</span>
             </h2>
-            <p style={{ fontSize: 14, color: "#64748B", marginTop: 12 }}>Drop your estimate — we'll analyze it and give you a clear answer.</p>
+            <p style={{ fontSize: 14, color: "#64748B", marginTop: 12 }}>Upload an invoice, paste a quote, or just describe what you were told.</p>
           </div>
 
           {error && <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#DC2626", fontWeight: 600 }}>{error}</div>}
 
-          <div className="fos-card" style={{ overflow: "hidden" }}>
-            {/* Tabs */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: "1px solid #E2E8F0" }}>
-              {([["file", "📄 Upload"], ["text", "✏️ Type"], ["describe", "💬 Describe"]] as const).map(([t, label]) => (
-                <button key={t} onClick={() => setTab(t as any)} style={{ padding: "14px 12px", background: tab === t ? "#EFF4FF40" : "transparent", border: "none", borderBottom: tab === t ? `2px solid ${BRAND}` : "2px solid transparent", cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: tab === t ? BRAND : "#94A3B8" }}>
-                  {label}
-                </button>
-              ))}
+          <div
+            className="fos-card"
+            onDragOver={e => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={e => { e.preventDefault(); setDrag(false); const f = Array.from(e.dataTransfer.files); if (f.length) { setFiles(f); } }}
+            style={{ overflow: "hidden", border: drag ? `2px solid ${BRAND}` : "1px solid #E2E8F0", transition: "border 0.2s" }}
+          >
+            {/* Attached file preview */}
+            {files.length > 0 && (
+              <div style={{ padding: "10px 20px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>📎</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>{files[0].name}</span>
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>({(files[0].size / 1024).toFixed(0)} KB)</span>
+                </div>
+                <button onClick={() => setFiles([])} style={{ background: "none", border: "none", fontSize: 14, color: "#94A3B8", cursor: "pointer", padding: "2px 6px" }}>✕</button>
+              </div>
+            )}
+
+            {/* Main input area */}
+            <div style={{ padding: "16px 20px" }}>
+              <textarea
+                value={textInput}
+                onChange={e => setTextInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+                rows={3}
+                placeholder={drag ? "Drop your file here..." : "Describe your repair quote, paste it, or drop a file..."}
+                style={{ width: "100%", border: "none", outline: "none", fontSize: 15, lineHeight: 1.6, resize: "none", color: "#0D1C2E", background: "transparent", fontFamily: "'Inter', system-ui, sans-serif" }}
+              />
             </div>
 
-            <div style={{ padding: 24 }}>
-              {tab === "file" && (
-                <div
+            {/* Bottom toolbar */}
+            <div style={{ padding: "10px 20px", borderTop: "1px solid #F1F5F9", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {/* Attach button */}
+                <button
                   onClick={() => fileRef.current?.click()}
-                  onDragOver={e => { e.preventDefault(); setDrag(true); }}
-                  onDragLeave={() => setDrag(false)}
-                  onDrop={e => { e.preventDefault(); setDrag(false); const f = Array.from(e.dataTransfer.files); if (f.length) { setFiles(f); submit(f); } }}
-                  style={{ border: `2px dashed ${drag ? BRAND : files.length ? GREEN : "#CBD5E1"}`, borderRadius: 16, padding: 40, textAlign: "center", cursor: "pointer", transition: "all 0.2s", background: drag ? "#EFF4FF60" : files.length ? "#F0FDF440" : "transparent" }}
-                >
-                  <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={e => { const f = Array.from(e.target.files || []); if (f.length) { setFiles(f); submit(f); } }} />
-                  {files.length ? (
-                    <div><div style={{ fontSize: 28, marginBottom: 8 }}>✅</div><p style={{ fontWeight: 700, fontSize: 14, color: "#0D1C2E" }}>{files[0].name}</p></div>
-                  ) : (
-                    <div><div style={{ fontSize: 28, marginBottom: 8 }}>📄</div><p style={{ fontWeight: 700, fontSize: 14, color: "#0D1C2E" }}>Drop your repair quote here</p><p style={{ fontSize: 12, color: "#94A3B8", marginTop: 4 }}>Photo, screenshot, or PDF</p></div>
-                  )}
-                </div>
-              )}
+                  style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E2E8F0", background: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 16 }}
+                  title="Attach file"
+                >+</button>
+                <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={e => { const f = Array.from(e.target.files || []); if (f.length) setFiles(f); }} />
 
-              {tab === "text" && (<>
-                <textarea value={textInput} onChange={e => setTextInput(e.target.value)} rows={8} placeholder={"Front brake pads + rotors — $680\nTransmission fluid flush — $320\nA/C compressor — $1,450\nTotal: $2,450"} style={{ width: "100%", border: "1px solid #E2E8F0", borderRadius: 12, padding: "12px 16px", fontSize: 14, fontFamily: "monospace", lineHeight: 1.6, resize: "none", outline: "none" }} />
-                <button className="fos-btn" onClick={() => submit()} disabled={textInput.trim().length < 15} style={{ width: "100%", marginTop: 12, padding: "14px 20px", background: BRAND, color: "#fff", borderRadius: 14, fontSize: 13, fontWeight: 800, opacity: textInput.trim().length < 15 ? 0.4 : 1 }}>
-                  ⚡ Analyze My Quote
-                </button>
-              </>)}
+                {/* Horizon pills */}
+                {(["<1yr","1-3yr","3+yr"] as const).map(val => (
+                  <button key={val} onClick={() => setHorizon(horizon === val ? "" : val)} style={{ padding: "4px 10px", borderRadius: 99, fontSize: 10, fontWeight: 700, border: `1px solid ${horizon === val ? BRAND : "#E2E8F0"}`, background: horizon === val ? "#EFF4FF" : "transparent", color: horizon === val ? BRAND : "#94A3B8", cursor: "pointer", marginLeft: 4 }}>
+                    {val === "<1yr" ? "< 1yr" : val === "1-3yr" ? "1-3yr" : "3+yr"}
+                  </button>
+                ))}
+              </div>
 
-              {tab === "describe" && (<>
-                <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>Got a quote over the phone? Just describe it naturally.</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  {["They quoted me $4,200 for a transmission rebuild on my 2014 Altima with 142k miles", "My mechanic said brakes and rotors all around plus ball joints — about $2,100 for a 2020 F-150"].map(ex => (
-                    <button key={ex} onClick={() => { setTextInput(ex); setTab("text"); }} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer", textAlign: "left" }}>{ex.slice(0, 60)}…</button>
-                  ))}
-                </div>
-                <textarea value={textInput} onChange={e => setTextInput(e.target.value)} rows={5} placeholder={"My mechanic quoted me $3,500 for a transmission rebuild on my 2008 Toyota Land Cruiser with 164,000 miles..."} style={{ width: "100%", border: "1px solid #E2E8F0", borderRadius: 12, padding: "12px 16px", fontSize: 14, lineHeight: 1.6, resize: "none", outline: "none" }} />
-                <button className="fos-btn" onClick={() => submit()} disabled={textInput.trim().length < 15} style={{ width: "100%", marginTop: 12, padding: "14px 20px", background: BRAND, color: "#fff", borderRadius: 14, fontSize: 13, fontWeight: 800, opacity: textInput.trim().length < 15 ? 0.4 : 1 }}>
-                  ⚡ Analyze My Quote
-                </button>
-              </>)}
-            </div>
-
-            {/* Ownership horizon */}
-            <div style={{ borderTop: "1px solid #E2E8F0", padding: "14px 24px", display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#64748B", whiteSpace: "nowrap" }}>How long will you keep it?</span>
-              {([["<1yr","< 1 year"],["1-3yr","1–3 years"],["3+yr","3+ years"]] as const).map(([val, label]) => (
-                <button key={val} onClick={() => setHorizon(horizon === val ? "" : val)} style={{ padding: "4px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700, border: `1px solid ${horizon === val ? BRAND : "#E2E8F0"}`, background: horizon === val ? "#EFF4FF" : "transparent", color: horizon === val ? BRAND : "#94A3B8", cursor: "pointer" }}>
-                  {label}
-                </button>
-              ))}
+              {/* Submit */}
+              <button
+                className="fos-btn"
+                onClick={() => submit()}
+                disabled={files.length === 0 && textInput.trim().length < 15}
+                style={{ width: 36, height: 36, borderRadius: 99, background: (files.length > 0 || textInput.trim().length >= 15) ? BRAND : "#E2E8F0", display: "flex", alignItems: "center", justifyContent: "center", cursor: (files.length > 0 || textInput.trim().length >= 15) ? "pointer" : "default", transition: "all 0.15s" }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={files.length > 0 || textInput.trim().length >= 15 ? "#fff" : "#94A3B8"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+              </button>
             </div>
           </div>
 
-          <div style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 8 }}>
-            {["Photo", "PDF", "Screenshot", "Typed text"].map(f => (
-              <span key={f} style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", background: "#fff", border: "1px solid #E2E8F0", padding: "3px 10px", borderRadius: 99 }}>{f}</span>
+          {/* Hints */}
+          <div style={{ marginTop: 14, display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+            {["📄 Photo/PDF", "✏️ Typed quote", "💬 Phone quote"].map(f => (
+              <span key={f} style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", background: "#fff", border: "1px solid #E2E8F0", padding: "3px 10px", borderRadius: 99 }}>{f}</span>
             ))}
           </div>
         </>)}
