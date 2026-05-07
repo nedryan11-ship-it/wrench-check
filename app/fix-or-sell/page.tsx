@@ -19,6 +19,7 @@ export default function FixOrSellPage() {
   const [vMake, setVMake] = useState("");
   const [vModel, setVModel] = useState("");
   const [vMileage, setVMileage] = useState("");
+  const [vValue, setVValue] = useState(""); // optional manual value override
   const [horizon, setHorizon] = useState("");
 
   // Partial quote (from step 1 when vehicle is missing)
@@ -120,6 +121,7 @@ export default function FixOrSellPage() {
           text,
           vehicle: { year: parseInt(vYear), make: vMake, model: vModel, mileage: parseInt(vMileage) },
           horizon: horizon || undefined,
+          manualValue: vValue ? parseInt(vValue.replace(/\D/g, ''), 10) : undefined,
         }),
       });
       const data = await res.json();
@@ -343,8 +345,14 @@ export default function FixOrSellPage() {
 
           <div className="fos-card" style={{ padding: 24 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {[["Year", vYear, setVYear, "2018"], ["Make", vMake, setVMake, "Honda"], ["Model", vModel, setVModel, "Accord"], ["Mileage", vMileage, setVMileage, "87000"]].map(([label, val, setter, ph]: any) => (
-                <div key={label}>
+              {[
+                ["Year", vYear, setVYear, "2018"], 
+                ["Make", vMake, setVMake, "Honda"], 
+                ["Model", vModel, setVModel, "Accord"], 
+                ["Mileage", vMileage, setVMileage, "87000"],
+                ["Est. Value (Optional)", vValue, setVValue, "$12,500"]
+              ].map(([label, val, setter, ph]: any) => (
+                <div key={label} style={{ gridColumn: label === "Est. Value (Optional)" ? "1 / span 2" : "auto" }}>
                   <label style={{ fontSize: 10, fontWeight: 800, color: "#94A3B8", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{label}</label>
                   <input value={val} onChange={e => setter(e.target.value)} placeholder={ph} style={{ width: "100%", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 14, fontWeight: 600, outline: "none" }} />
                 </div>

@@ -148,6 +148,7 @@ export async function POST(req: NextRequest) {
     let rawText = "";
     let vehicleOverride: { year?: number; make?: string; model?: string; trim?: string; mileage?: number } | undefined;
     let ownershipHorizon: OwnershipHorizon | undefined;
+    let manualValue: number | undefined;
 
     if (contentType.includes("multipart/form-data")) {
       // File upload
@@ -167,6 +168,7 @@ export async function POST(req: NextRequest) {
       const model = formData.get("model");
       const mileage = formData.get("mileage");
       const horizon = formData.get("horizon") as string | null;
+      const mVal = formData.get("manualValue") as string | null;
 
       if (year || make || model) {
         vehicleOverride = {
@@ -177,6 +179,7 @@ export async function POST(req: NextRequest) {
         };
       }
       if (horizon) ownershipHorizon = horizon as OwnershipHorizon;
+      if (mVal) manualValue = parseInt(mVal.replace(/\D/g, ''), 10);
 
     } else {
       // JSON body
@@ -184,6 +187,7 @@ export async function POST(req: NextRequest) {
       rawText = body.text || "";
       vehicleOverride = body.vehicle;
       ownershipHorizon = body.horizon;
+      if (body.manualValue) manualValue = parseInt(String(body.manualValue).replace(/\D/g, ''), 10);
     }
 
     if (!rawText || rawText.length < 10) {
@@ -227,15 +231,16 @@ export async function POST(req: NextRequest) {
     console.log(`[fix-or-sell] Vehicle: ${vehicle.year} ${vehicle.make} ${vehicle.model} @ ${vehicle.mileage}mi`);
     const vehicleDesc = [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
 
-    const [valueEstimate, modelIntel, enrichedItems] = await Promise.all([
-      estimateVehicleValue({
-        year: vehicle.year!,
-        make: vehicle.make!,
-        model: vehicle.model!,
-        trim: vehicle.trim,
-        mileage: vehicle.mileage!,
-        vin: vehicle.vin,
-      }),
+    let valueEstimate = manualValue ? {
+      value: manualValue,
+      rangeLow: manualValue,
+      rangeHigh: manualValue,
+      source: 'user_entered' as const,
+      confidence: 'high' as const,
+      methodology: 'User-provided manual valuation.'
+    } : null;
+
+    const [modelIntel, enrichedItems] = await Promise.all([
       getModelIntelligence({
         year: vehicle.year!,
         make: vehicle.make!,
@@ -245,6 +250,17 @@ export async function POST(req: NextRequest) {
       }),
       enrichWithFairPrices(quote.items, vehicleDesc),
     ]);
+
+    if (!valueEstimate) {
+      valueEstimate = await estimateVehicleValue({
+        year: vehicle.year!,
+        make: vehicle.make!,
+        model: vehicle.model!,
+        trim: vehicle.trim,
+        mileage: vehicle.mileage!,
+        vin: vehicle.vin,
+      });
+    }
 
     if (!valueEstimate) {
       return NextResponse.json({

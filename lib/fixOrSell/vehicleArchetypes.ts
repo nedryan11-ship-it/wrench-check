@@ -449,6 +449,14 @@ export function assessValuationConfidence(
   valueSource: string,
   hasConditionInput: boolean,
 ): { confidence: ValuationConfidence; note: string; shouldGateVerdict: boolean } {
+  if (valueSource === 'user_entered') {
+    return {
+      confidence: 'high',
+      note: 'Using your provided manual value.',
+      shouldGateVerdict: false,
+    };
+  }
+
   // Enthusiast vehicles with no condition input = always low confidence
   if (archetype === 'enthusiast' && !hasConditionInput && compCount < 5) {
     return {
