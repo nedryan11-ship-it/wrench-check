@@ -243,6 +243,11 @@ function computeWhatCouldChange(
     factors.push('Getting a second opinion or competitive quote');
   }
 
+  // Warranties
+  if (drivetrainShare > 0.3) {
+    factors.push('Whether the shop offers a long-term warranty (e.g., a 2-3 year warranty on a rebuilt transmission significantly lowers your long-term risk)');
+  }
+
   return factors.slice(0, 5);
 }
 
@@ -321,11 +326,11 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
   // Floor at scrap value ($500)
   const asIsValue = Math.max(500, vehicleValue - repairCost - mechanicsPenalty);
 
-  // ROI = (Equity Gained) / Repair Cost
+  // ROI = (Profit) / Repair Cost
   let repairROI: number | null = null;
   if (repairCost > 0) {
-    const equityGained = vehicleValue - asIsValue;
-    repairROI = (equityGained / repairCost) * 100;
+    const profit = vehicleValue - asIsValue - repairCost;
+    repairROI = (profit / repairCost) * 100;
   }
 
   const expectedMaint12mo = tco
