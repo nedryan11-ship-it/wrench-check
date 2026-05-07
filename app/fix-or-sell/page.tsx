@@ -32,6 +32,8 @@ export default function FixOrSellPage() {
 
   const [chatOpen, setChatOpen] = useState(false);
   const [chatImage, setChatImage] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
 
   const { messages: chatMessages, input: chatInput, setInput: setChatInput, isLoading: chatLoading, append } = useChat({
     api: "/api/fix-or-sell/chat",
@@ -70,8 +72,31 @@ export default function FixOrSellPage() {
 
   // Auto-scroll chat to bottom
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, chatLoading]);
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages]);
+
+  const handleShare = async () => {
+    if (!result) return;
+    setIsSharing(true);
+    try {
+      const res = await fetch("/api/fix-or-sell/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportData: result }),
+      });
+      const data = await res.json();
+      if (data.id) {
+        const url = `${window.location.origin}/report/${data.id}`;
+        setShareLink(url);
+        navigator.clipboard.writeText(url);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setIsSharing(false);
+  };
 
   // Auto-scroll to chat when verdict loads
   useEffect(() => {
@@ -605,8 +630,16 @@ export default function FixOrSellPage() {
               )}
             </div>
 
-            <div style={{ textAlign: "center", marginTop: 24 }}>
-              <button onClick={() => { setStep("input"); setResult(null); setFiles([]); setTextInput(""); setError(null); setChatOpen(false); }} style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", background: "transparent", border: "none", cursor: "pointer" }}>
+            <div style={{ textAlign: "center", marginTop: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+              <button 
+                onClick={handleShare} 
+                disabled={isSharing}
+                style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: shareLink ? GREEN : BRAND, border: "none", cursor: "pointer", padding: "12px 24px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 8, transition: "all 0.2s" }}
+              >
+                {shareLink ? "✅ Link Copied!" : isSharing ? "Generating..." : "🔗 Copy Shareable Link"}
+              </button>
+              
+              <button onClick={() => { setStep("input"); setResult(null); setFiles([]); setTextInput(""); setError(null); setChatOpen(false); setShareLink(null); }} style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", background: "transparent", border: "none", cursor: "pointer", padding: "8px" }}>
                 ← Analyze another quote
               </button>
             </div>
