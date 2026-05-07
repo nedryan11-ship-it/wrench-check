@@ -82,7 +82,9 @@ export interface FixSellVerdict {
   repairRatio: number;
   forwardCost12mo: number;
   vehicleValue: number;
+  asIsValue: number;
   repairCost: number;
+  repairROI: number | null;
 
   // Narrative
   explanation: string;
@@ -297,6 +299,35 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
   const routineShare = repairCost > 0 ? mix.routine / repairCost : 0;
   const drivetrainShare = repairCost > 0 ? mix.drivetrain / repairCost : 0;
 
+  // ── Compute ROI ────────────────────────────────────────────────────────────
+  // Calculate "Mechanic's Penalty" based on archetype and repair cost
+  let mechanicsPenalty = 0;
+  const isDecisionDriving = repairItems.some(i => classifyRepairTier(i) === 'decision_driving');
+
+  if (isDecisionDriving) {
+    switch (at) {
+      case 'enthusiast': mechanicsPenalty = Math.max(500, repairCost * 0.10); break;
+      case 'truck_work': mechanicsPenalty = Math.max(1000, repairCost * 0.15); break;
+      case 'reliable_appliance': mechanicsPenalty = Math.max(1500, repairCost * 0.20); break;
+      case 'commodity': mechanicsPenalty = Math.max(1500, repairCost * 0.25); break;
+      case 'luxury_depreciator': mechanicsPenalty = Math.max(2500, repairCost * 0.35); break;
+    }
+  } else {
+    // Standard hassle discount
+    mechanicsPenalty = Math.max(250, repairCost * 0.10);
+  }
+
+  // As-Is Value = Fixed Value - Repair Cost - Penalty
+  // Floor at scrap value ($500)
+  const asIsValue = Math.max(500, vehicleValue - repairCost - mechanicsPenalty);
+
+  // ROI = (Equity Gained) / Repair Cost
+  let repairROI: number | null = null;
+  if (repairCost > 0) {
+    const equityGained = vehicleValue - asIsValue;
+    repairROI = (equityGained / repairCost) * 100;
+  }
+
   const expectedMaint12mo = tco
     ? Math.round((tco.year1Low + tco.year1High) / 2)
     : Math.round(vehicleValue * 0.06);
@@ -395,7 +426,7 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
   return {
     decision, confidence, headline, subheadline,
     repairRatio: Math.round(repairRatio * 100),
-    forwardCost12mo, vehicleValue, repairCost,
+    forwardCost12mo, vehicleValue, asIsValue, repairCost, repairROI,
     explanation, recommendation,
     whatCouldChange, followUpQuestions,
     repairMix: mix, tieredItems: tiered,

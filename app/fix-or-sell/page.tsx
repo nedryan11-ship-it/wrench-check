@@ -363,9 +363,16 @@ export default function FixOrSellPage() {
 
               {/* Key numbers — inline row */}
               <div className="fos-ratio-grid" style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 12, flexWrap: "wrap" }}>
-                <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Value </span><span style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>~${Math.round(v.vehicleValue || 0).toLocaleString()}</span></div>
+                <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Fixed Value </span><span style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>~${Math.round(v.vehicleValue || 0).toLocaleString()}</span></div>
+                {v.asIsValue && (
+                  <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>As-Is Value </span><span style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>~${Math.round(v.asIsValue).toLocaleString()}</span></div>
+                )}
                 <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Repair </span><span style={{ fontSize: 15, fontWeight: 800, color: dc }}>${Math.round(v.repairCost || 0).toLocaleString()}</span></div>
-                <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ratio </span><span style={{ fontSize: 15, fontWeight: 800, color: dc }}>{v.repairRatio}%</span></div>
+                {v.repairROI ? (
+                  <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Repair ROI </span><span style={{ fontSize: 15, fontWeight: 800, color: dc }}>+{Math.round(v.repairROI)}%</span></div>
+                ) : (
+                  <div><span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ratio </span><span style={{ fontSize: 15, fontWeight: 800, color: dc }}>{v.repairRatio}%</span></div>
+                )}
               </div>
 
               {/* Valuation caveat inline */}
