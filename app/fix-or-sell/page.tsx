@@ -129,6 +129,29 @@ export default function FixOrSellPage() {
     } catch { setError("Something went wrong."); setStep("vehicle"); }
   }, [vYear, vMake, vModel, vMileage, partialQuote, rawText, horizon]);
 
+  // -- Update Horizon (Re-evaluate) -----------------------------------------
+  const updateHorizon = async (newHorizon: string) => {
+    setHorizon(newHorizon);
+    if (step !== "verdict" || !result) return;
+    setStep("loading");
+    try {
+      const v = result.vehicle;
+      const payload = {
+        text: rawText,
+        vehicle: v ? { year: v.year, make: v.make, model: v.model, mileage: v.mileage } : undefined,
+        horizon: newHorizon
+      };
+      const res = await fetch("/api/fix-or-sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!data.error) setResult(data);
+    } catch {}
+    setStep("verdict");
+  };
+
   // -- Chat -----------------------------------------------------------------
   const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -396,6 +419,36 @@ export default function FixOrSellPage() {
               {v.recommendation && (
                 <p style={{ fontSize: 13, fontWeight: 600, color: "#0D1C2E", margin: "14px 0 0", padding: "10px 14px", background: `${dc}08`, borderRadius: 10, lineHeight: 1.6 }}>{v.recommendation}</p>
               )}
+
+              {/* Ownership Horizon Toggle */}
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #E2E8F0" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>How long do you plan to keep this car?</p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[
+                    { val: '<1yr', label: 'Selling Soon (<1 yr)' },
+                    { val: '1-3yr', label: 'Medium Term (1-3 yrs)' },
+                    { val: '3+yr', label: 'Long Term (3+ yrs)' }
+                  ].map(opt => (
+                    <button 
+                      key={opt.val} 
+                      onClick={() => updateHorizon(opt.val)}
+                      style={{ 
+                        padding: "8px 16px", 
+                        fontSize: 12, 
+                        fontWeight: 600, 
+                        borderRadius: 99, 
+                        border: `1px solid ${horizon === opt.val ? BRAND : '#E2E8F0'}`, 
+                        background: horizon === opt.val ? BRAND : '#fff', 
+                        color: horizon === opt.val ? '#fff' : '#475569', 
+                        cursor: "pointer", 
+                        transition: "all 0.15s" 
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
 
