@@ -28,10 +28,10 @@ export default function FixOrSellPage() {
   // Result
   const [result, setResult] = useState<any>(null);
 
-  // Chat
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role:string;content:string}[]>([]);
+  const [chatMessages, setChatMessages] = useState<{role:string;content:string;imageBase64?:string}[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [chatImage, setChatImage] = useState<string | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -130,12 +130,24 @@ export default function FixOrSellPage() {
   }, [vYear, vMake, vModel, vMileage, partialQuote, rawText, horizon]);
 
   // -- Chat -----------------------------------------------------------------
+  const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setChatImage(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   const sendChat = useCallback(async () => {
-    if (!chatInput.trim() || chatLoading) return;
-    const userMsg = { role: "user", content: chatInput.trim() };
+    if ((!chatInput.trim() && !chatImage) || chatLoading) return;
+    const userMsg = { role: "user", content: chatInput.trim(), imageBase64: chatImage || undefined };
     const msgs = [...chatMessages, userMsg];
     setChatMessages(msgs);
     setChatInput("");
+    setChatImage(null);
     setChatLoading(true);
     try {
       const v = result?.verdict;
@@ -406,16 +418,29 @@ export default function FixOrSellPage() {
                   {chatMessages.map((m, i) => (
                     <div key={i} style={{ marginBottom: 8, textAlign: m.role === "user" ? "right" : "left" }}>
                       <div className="chat-msg" style={{ display: "inline-block", padding: "8px 14px", borderRadius: 14, fontSize: 13, lineHeight: 1.5, maxWidth: "85%", background: m.role === "user" ? BRAND : "#F1F5F9", color: m.role === "user" ? "#fff" : "#334155", textAlign: "left" }}>
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                        {m.imageBase64 && <img src={m.imageBase64} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8, marginBottom: m.content ? 8 : 0, display: "block" }} />}
+                        {m.content && <ReactMarkdown>{m.content}</ReactMarkdown>}
                       </div>
                     </div>
                   ))}
                   {chatLoading && <div style={{ fontSize: 12, color: "#94A3B8" }}>Thinking...</div>}
                   <div ref={chatEndRef} />
                 </div>
+                
+                {chatImage && (
+                  <div style={{ marginBottom: 8, display: "inline-block", position: "relative" }}>
+                    <img src={chatImage} style={{ height: 60, borderRadius: 8, objectFit: "cover", border: "1px solid #E2E8F0" }} />
+                    <button onClick={() => setChatImage(null)} style={{ position: "absolute", top: -6, right: -6, background: RED, color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                  </div>
+                )}
+                
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask anything about this decision..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none" }} />
-                  <button className="fos-btn" onClick={sendChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 18px", background: BRAND, color: "#fff", borderRadius: 10, fontSize: 12, fontWeight: 700, opacity: !chatInput.trim() ? 0.4 : 1 }}>Send</button>
+                  <label style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", width: 42, height: 42, background: "#F1F5F9", borderRadius: 10, border: "1px solid #E2E8F0", color: "#64748B", flexShrink: 0, transition: "all 0.15s" }} className="fos-btn">
+                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleChatImageUpload} />
+                    📷
+                  </label>
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Ask about this or upload a photo..." style={{ flex: 1, border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", fontSize: 13, outline: "none", minWidth: 0 }} />
+                  <button className="fos-btn" onClick={sendChat} disabled={(!chatInput.trim() && !chatImage) || chatLoading} style={{ padding: "10px 18px", background: BRAND, color: "#fff", borderRadius: 10, fontSize: 12, fontWeight: 700, opacity: (!chatInput.trim() && !chatImage) ? 0.4 : 1 }}>Send</button>
                 </div>
               </div>
             </div>

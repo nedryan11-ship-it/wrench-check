@@ -13,7 +13,8 @@ CRITICAL RULES:
 4. Give a clear stance in every response (yes/no/it depends + why).
 5. Be concise: 2–4 sentences max unless the user asks for detail.
 6. Reference specific numbers from the context when available (e.g. "spending $5,500 on a $21,000 vehicle").
-7. Use plain English — no jargon.
+7. If the user uploads a photo of the vehicle, evaluate its condition (rust, paint, interior, mods). Adjust the vehicle's As-Is or Fixed Value up or down based on what you see, and explain your reasoning clearly to the user.
+8. Use plain English — no jargon.
 
 Tone: calm, confident, empathetic, slightly direct. Like a knowledgeable friend who is a master mechanic.`;
 
@@ -57,16 +58,29 @@ export async function POST(req: NextRequest) {
 
     const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       ...systemMessages,
-      ...messages.map((m: any) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      ...messages.map((m: any) => {
+        if (m.imageBase64) {
+          return {
+            role: m.role as "user",
+            content: [
+              { type: "text", text: m.content || "Here is a photo of the vehicle." },
+              { type: "image_url", image_url: { url: m.imageBase64, detail: "high" } }
+            ]
+          };
+        }
+        return {
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        };
+      }),
     ];
 
+    const hasImage = messages.some((m: any) => !!m.imageBase64);
+
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: hasImage ? "gpt-4o" : "gpt-4o-mini",
       messages: oaiMessages,
-      max_tokens: 300,
+      max_tokens: 400,
       temperature: 0.4,
     }, { signal: AbortSignal.timeout(12000) });
 
