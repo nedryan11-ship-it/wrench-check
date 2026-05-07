@@ -36,6 +36,8 @@ export interface FixSellInput {
   vehicleModel?: string;
   vehicleDesc: string;
   archetype: ArchetypeResult;
+  valConfidence?: 'high' | 'medium' | 'low';
+  shouldGateVerdict?: boolean;
 }
 
 // ── Soft verdict system ──────────────────────────────────────────────────────
@@ -371,7 +373,10 @@ export function computeFixOrSell(input: FixSellInput): FixSellVerdict {
   if (at === 'enthusiast' && confidence === 'high') confidence = 'medium'; // condition unknown
 
   // Upgrade to needs_context when we really can't say
-  if (confidence === 'low' && at === 'enthusiast' && !ownershipHorizon) {
+  if (input.shouldGateVerdict) {
+    decision = 'needs_context';
+    confidence = 'low';
+  } else if (confidence === 'low' && at === 'enthusiast' && !ownershipHorizon) {
     decision = 'needs_context';
   }
 

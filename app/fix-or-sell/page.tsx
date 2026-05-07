@@ -153,8 +153,9 @@ export default function FixOrSellPage() {
         reliabilityTier: result?.modelIntel?.reliabilityTier,
         ownershipOutlook: result?.modelIntel?.ownershipOutlook,
         repairItems: result?.quote?.items?.map((i:any) => `${i.description}: $${i.cost} (${i.isFair === false ? 'overpriced' : 'fair'})`).join(", "),
+        archetypeLabel: v?.archetypeLabel,
       };
-      const res = await fetch("/api/audit-chat", {
+      const res = await fetch("/api/fix-or-sell/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: msgs, context }),

@@ -279,6 +279,8 @@ export async function POST(req: NextRequest) {
       vehicleModel: vehicle.model,
       vehicleDesc,
       archetype: archetypeResult,
+      valConfidence: valConfidence.confidence,
+      shouldGateVerdict: valConfidence.shouldGateVerdict,
     });
 
     // ── Step 6: Sell estimates (problem-aware) ────────────────────────────────
