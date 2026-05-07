@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { openai } from "@ai-sdk/openai";
+import { streamText } from "ai";
+import { z } from "zod";
 
 const SYSTEM_PROMPT = `You are a straight-talking automotive service advisor embedded in a tool called WrenchCheck.
 Your role is to help a car owner decide whether to FIX their current vehicle or SELL it, based on a recent repair quote.
@@ -44,61 +44,63 @@ function buildContextMessage(ctx: Record<string, any>): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, context } = await req.json();
+    const { messages, context, data } = await req.json();
+    const imageBase64 = data?.imageBase64;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
     }
 
-    const systemMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: SYSTEM_PROMPT },
-    ];
+    const systemPrompt = [
+      SYSTEM_PROMPT,
+      context && typeof context === "object" ? buildContextMessage(context) : ""
+    ].filter(Boolean).join("\n\n");
 
-    if (context && typeof context === "object") {
-      systemMessages.push({
-        role: "system",
-        content: buildContextMessage(context),
-      });
+    // Map messages for Vercel AI SDK
+    const aiMessages = messages.map((m: any) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+
+    // If an image is passed in the body, attach it to the very last message
+    if (imageBase64) {
+      const lastMsg = aiMessages[aiMessages.length - 1];
+      if (lastMsg && lastMsg.role === 'user') {
+        lastMsg.content = [
+          { type: "text", text: lastMsg.content || "Here is a photo of the vehicle." },
+          { type: "image", image: imageBase64.split(',')[1] || imageBase64 } // Vercel AI SDK expects just the base64 string, not the data:image prefix
+        ] as any;
+      }
     }
 
-    const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      ...systemMessages,
-      ...messages.map((m: any) => {
-        if (m.imageBase64) {
-          return {
-            role: m.role as "user",
-            content: [
-              { type: "text", text: m.content || "Here is a photo of the vehicle." },
-              { type: "image_url", image_url: { url: m.imageBase64, detail: "high" } }
-            ]
-          };
-        }
-        return {
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        };
-      }),
-    ];
+    const hasImage = !!imageBase64 || messages.some((m: any) => !!m.imageBase64);
 
-    const hasImage = messages.some((m: any) => !!m.imageBase64);
-
-    const completion = await openai.chat.completions.create({
-      model: hasImage ? "gpt-4o" : "gpt-4o-mini",
-      messages: oaiMessages,
-      max_tokens: 400,
+    const result = streamText({
+      model: hasImage ? openai("gpt-4o") : openai("gpt-4o-mini"),
+      system: systemPrompt,
+      messages: aiMessages,
+      maxTokens: 500,
       temperature: 0.4,
-    }, { signal: AbortSignal.timeout(12000) });
+      tools: {
+        updateRepairCost: {
+          description: "Update the total repair cost dynamically when the user finds a cheaper option, gets a competitive quote, or successfully negotiates a lower price with the mechanic.",
+          parameters: z.object({
+            newCost: z.number().describe("The newly negotiated or adjusted repair cost in dollars.")
+          }),
+          execute: async ({ newCost }) => {
+            return {
+              updatedCost: newCost,
+              message: `Repair cost successfully updated to $${newCost}. The UI should now reflect this new ROI.`
+            };
+          }
+        }
+      }
+    });
 
-    const reply = completion.choices[0]?.message?.content ?? "I couldn't process that. Try rephrasing.";
-
-    return NextResponse.json({ reply });
+    return result.toDataStreamResponse();
 
   } catch (err: unknown) {
     console.error("[fix-sell-chat] error:", err);
-    const isTimeout = err instanceof Error && err.name === "AbortError";
-    return NextResponse.json(
-      { reply: isTimeout ? "Taking too long — try again in a moment." : "Something went wrong. Please try again." },
-      { status: isTimeout ? 504 : 500 }
-    );
+    return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }
 }

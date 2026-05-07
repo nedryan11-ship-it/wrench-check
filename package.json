@@ -9,11 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.62",
+    "@ai-sdk/react": "^3.0.177",
     "@google/genai": "^1.48.0",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.101.0",
     "@types/pdf-parse": "^1.1.5",
     "@types/sharp": "^0.31.1",
+    "ai": "^6.0.175",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",

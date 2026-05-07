@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import ReactMarkdown from 'react-markdown';
+import { useChat } from '@ai-sdk/react';
 
 type Step = "input" | "vehicle" | "loading" | "verdict";
 
@@ -30,10 +31,40 @@ export default function FixOrSellPage() {
   const [result, setResult] = useState<any>(null);
 
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role:string;content:string;imageBase64?:string}[]>([]);
-  const [chatInput, setChatInput] = useState("");
   const [chatImage, setChatImage] = useState<string | null>(null);
-  const [chatLoading, setChatLoading] = useState(false);
+
+  const { messages: chatMessages, input: chatInput, setInput: setChatInput, isLoading: chatLoading, append } = useChat({
+    api: "/api/fix-or-sell/chat",
+    body: {
+      context: result?.verdict ? {
+        vehicle: result?.vehicle?.desc,
+        repairCost: result?.verdict?.repairCost,
+        vehicleValue: result?.verdict?.vehicleValue,
+        repairRatio: result?.verdict?.repairRatio,
+        verdictLabel: result?.verdict?.decision?.toUpperCase(),
+        explanation: result?.verdict?.explanation,
+      } : undefined
+    },
+    onToolCall({ toolCall }) {
+      if (toolCall.toolName === 'updateRepairCost') {
+        const { newCost } = toolCall.args;
+        setResult((prev: any) => {
+          if (!prev || !prev.verdict) return prev;
+          const r = JSON.parse(JSON.stringify(prev));
+          r.verdict.repairCost = newCost;
+          const asIs = r.verdict.asIsValue;
+          const vv = r.verdict.vehicleValue;
+          if (vv && asIs) {
+            const profit = vv - asIs - newCost;
+            r.verdict.repairROI = (profit / newCost) * 100;
+          }
+          r.verdict.repairRatio = Math.round((newCost / vv) * 100);
+          return r;
+        });
+      }
+    }
+  });
+  
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -58,7 +89,6 @@ export default function FixOrSellPage() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed.result) setResult(parsed.result);
-        if (parsed.chatMessages) setChatMessages(parsed.chatMessages);
         if (parsed.step && parsed.step !== "input" && parsed.step !== "loading") setStep(parsed.step);
       } catch (e) {}
     }
@@ -168,40 +198,17 @@ export default function FixOrSellPage() {
 
   const sendChat = useCallback(async () => {
     if ((!chatInput.trim() && !chatImage) || chatLoading) return;
-    const userMsg = { role: "user", content: chatInput.trim(), imageBase64: chatImage || undefined };
-    const msgs = [...chatMessages, userMsg];
-    setChatMessages(msgs);
+    
+    append({
+      role: 'user',
+      content: chatInput.trim(),
+    }, {
+      data: chatImage ? { imageBase64: chatImage } : undefined
+    });
+    
     setChatInput("");
     setChatImage(null);
-    setChatLoading(true);
-    try {
-      const v = result?.verdict;
-      const context = {
-        vehicle: result?.vehicle?.desc,
-        mileage: result?.vehicle?.mileage,
-        verdictLabel: v?.decision?.toUpperCase(),
-        whatIdDo: v?.recommendation,
-        mode: "fix_or_sell",
-        repairCost: v?.repairCost,
-        vehicleValue: v?.vehicleValue,
-        repairRatio: v?.repairRatio,
-        forwardCost12mo: v?.forwardCost12mo,
-        explanation: v?.explanation,
-        reliabilityTier: result?.modelIntel?.reliabilityTier,
-        ownershipOutlook: result?.modelIntel?.ownershipOutlook,
-        repairItems: result?.quote?.items?.map((i:any) => `${i.description}: $${i.cost} (${i.isFair === false ? 'overpriced' : 'fair'})`).join(", "),
-        archetypeLabel: v?.archetypeLabel,
-      };
-      const res = await fetch("/api/fix-or-sell/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: msgs, context }),
-      });
-      const data = await res.json();
-      setChatMessages([...msgs, { role: "assistant", content: data.reply }]);
-    } catch { setChatMessages([...msgs, { role: "assistant", content: "Something went wrong — try again." }]); }
-    finally { setChatLoading(false); }
-  }, [chatInput, chatMessages, chatLoading, result]);
+  }, [chatInput, chatImage, chatLoading, append, setChatInput]);
 
   const BRAND = "#00236F";
   const GREEN = "#16A34A";
@@ -470,7 +477,7 @@ export default function FixOrSellPage() {
                     )}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {(v.followUpQuestions || v.whatCouldChange || []).map((q: string) => (
-                        <button key={q} onClick={() => { setChatInput(q); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer", transition: "all 0.15s" }}>{q}</button>
+                        <button key={q} onClick={() => { append({ role: 'user', content: q }); }} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, border: "1px solid #E2E8F0", borderRadius: 99, background: "#F8FAFC", color: "#475569", cursor: "pointer", transition: "all 0.15s", textAlign: "left" }}>{q}</button>
                       ))}
                     </div>
                   </div>
@@ -598,9 +605,8 @@ export default function FixOrSellPage() {
               )}
             </div>
 
-            {/* Start over */}
             <div style={{ textAlign: "center", marginTop: 24 }}>
-              <button onClick={() => { setStep("input"); setResult(null); setFiles([]); setTextInput(""); setError(null); setChatMessages([]); setChatOpen(false); }} style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", background: "transparent", border: "none", cursor: "pointer" }}>
+              <button onClick={() => { setStep("input"); setResult(null); setFiles([]); setTextInput(""); setError(null); setChatOpen(false); }} style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", background: "transparent", border: "none", cursor: "pointer" }}>
                 ← Analyze another quote
               </button>
             </div>
